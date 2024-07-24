@@ -1,0 +1,182 @@
+use std::{
+    fs::File,
+    io::{BufReader, Read, Write},
+    path::PathBuf,
+};
+
+use clap::Parser;
+use indicatif::{ProgressBar, ProgressStyle};
+use innodb::innodb::page::{index::IndexHeader, Page, PageType};
+use tracing::{debug, info, Level};
+
+#[derive(Parser, Debug)]
+struct Arguments {
+    #[arg(
+        short,
+        long,
+        help = "Max possible size of the db, used to estimate page number"
+    )]
+    size: Option<usize>,
+
+    #[arg(short='n', action = clap::ArgAction::SetTrue)]
+    dry_run: bool,
+
+    #[arg(short='v', action = clap::ArgAction::Count)]
+    verbose: u8,
+
+    #[arg(short = 'o', long = "output", default_value = "output")]
+    output: PathBuf,
+
+    file: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+enum PageValidationResult<'a> {
+    Valid(Page<'a>),
+    InvalidChecksum,
+    NotAPage,
+}
+
+fn validate_page(page: &[u8]) -> PageValidationResult {
+    let page = Page::from_bytes(page).expect("Can't construct page?");
+    if page.header.page_type == PageType::Undefined {
+        return PageValidationResult::NotAPage;
+    }
+    if page.crc32_checksum() == page.header.new_checksum
+        || page.innodb_checksum() == page.header.new_checksum
+    {
+        return PageValidationResult::Valid(page);
+    } else {
+        if (page.header.lsn as u32) == page.trailer.lsn_low_32 {
+            return PageValidationResult::InvalidChecksum;
+        }
+    }
+
+    PageValidationResult::NotAPage
+}
+
+fn main() {
+    let args = Arguments::parse();
+
+    let subscriber = tracing_subscriber::FmtSubscriber::builder()
+        .with_max_level(match args.verbose {
+            0 => Level::INFO,
+            1 => Level::DEBUG,
+            _ => Level::TRACE,
+        })
+        .finish();
+    _ = tracing::subscriber::set_global_default(subscriber);
+
+    let output_index = args.output.join("FIL_PAGE_INDEX");
+    let output_blob = args.output.join("FIL_PAGE_TYPE_BLOB");
+    if !args.dry_run {
+        std::fs::create_dir_all(&output_index).expect("Failed to create output directory");
+        std::fs::create_dir_all(&output_blob).expect("Failed to create output directory");
+        if output_index.read_dir().unwrap().next().is_some()
+            || output_blob.read_dir().unwrap().next().is_some()
+        {
+            panic!(
+                "Output directory is not empty: {}",
+                args.output.to_str().unwrap()
+            );
+        }
+    }
+
+    let file = File::open(args.file).expect("Can't open provided file");
+    let metadata = file.metadata().expect("No metadata?");
+
+    let pb: Option<ProgressBar> = if args.verbose == 0 {
+        Some(ProgressBar::new(metadata.len()))
+    } else {
+        None
+    };
+
+    if let Some(pb) = &pb {
+        pb.set_style(
+            ProgressStyle::with_template(
+                "[{eta}] [{bar:40}] ({bytes_per_sec}) {bytes}/{total_bytes} {msg}",
+            )
+            .unwrap()
+            .progress_chars("=> "),
+        );
+    }
+
+    let mut reader = BufReader::new(file);
+
+    let mut valid_counter = 0usize;
+    let mut valid_index_counter = 0usize;
+    let mut failed_checksum = 0usize;
+
+    const CACHE_BUFFER_MAX_SIZE: usize = 1 * 1024 * 1024;
+    const STEP_SIZE: usize = 4096;
+    const PAGE_SIZE: usize = 16384;
+
+    let mut buffer = Vec::new();
+    let mut head_pointer: usize = 0;
+    loop {
+        let mut step_size = STEP_SIZE;
+        if (buffer.len() - head_pointer) < PAGE_SIZE {
+            buffer.drain(0..head_pointer);
+            head_pointer = 0;
+            let current_len = buffer.len();
+            buffer.resize(CACHE_BUFFER_MAX_SIZE, 0);
+            match reader.read(&mut buffer[current_len..]) {
+                Ok(bytes) => {
+                    if bytes == 0 {
+                        break;
+                    }
+                    buffer.resize(current_len + bytes, 0)
+                }
+                Err(_) => break,
+            }
+            continue;
+        }
+
+        match validate_page(&buffer[head_pointer..][..PAGE_SIZE]) {
+            PageValidationResult::Valid(page) => {
+                debug!("Page validated {page:x?}");
+                valid_counter += 1;
+                match page.header.page_type {
+                    PageType::Index => {
+                        let index_header = IndexHeader::from_bytes(page.body()).unwrap();
+                        debug!("Index: {index_header:?}");
+                        if !args.dry_run {
+                            let save_path =
+                                output_index.join(format!("{:016}.page", index_header.index_id));
+                            let mut f = File::options()
+                                .append(true)
+                                .create(true)
+                                .open(save_path)
+                                .expect("Can't open file to save pages");
+                            f.write(page.raw_data).expect("Failed to write");
+                        }
+                        valid_index_counter += 1;
+                    }
+                    PageType::Blob => {
+                        if !args.dry_run {
+                            let save_path =
+                                output_blob.join(format!("{:016}.page", page.header.offset));
+                            let mut f = File::options()
+                                .append(true)
+                                .create(true)
+                                .open(save_path)
+                                .expect("Can't open file to save pages");
+                            f.write(page.raw_data).expect("Failed to write");
+                        }
+                    }
+                    _ => {}
+                }
+                step_size = PAGE_SIZE;
+            }
+            PageValidationResult::InvalidChecksum => {
+                failed_checksum += 1;
+            }
+            PageValidationResult::NotAPage => {}
+        }
+
+        head_pointer += step_size;
+        pb.as_ref().map(|b| b.inc(step_size as u64));
+    }
+
+    info!("found {valid_counter} pages that have valid checksum ({valid_index_counter} index pages), {failed_checksum} pages only failed checksum");
+}
