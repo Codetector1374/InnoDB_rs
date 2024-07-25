@@ -7,7 +7,7 @@ use std::{
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use innodb::innodb::page::{index::IndexHeader, Page, PageType};
-use tracing::{debug, info, Level};
+use tracing::{debug, info, trace, Level};
 
 #[derive(Parser, Debug)]
 struct Arguments {
@@ -20,6 +20,12 @@ struct Arguments {
 
     #[arg(short='n', action = clap::ArgAction::SetTrue)]
     dry_run: bool,
+
+    #[arg(long="no-index-page", action = clap::ArgAction::SetFalse)]
+    extract_index_pages: bool,
+
+    #[arg(long, action = clap::ArgAction::SetTrue)]
+    color: bool,
 
     #[arg(short='v', action = clap::ArgAction::Count)]
     verbose: u8,
@@ -64,20 +70,25 @@ fn main() {
             1 => Level::DEBUG,
             _ => Level::TRACE,
         })
+        .with_ansi(args.color)
         .finish();
     _ = tracing::subscriber::set_global_default(subscriber);
 
     let output_index = args.output.join("FIL_PAGE_INDEX");
     let output_blob = args.output.join("FIL_PAGE_TYPE_BLOB");
     if !args.dry_run {
-        std::fs::create_dir_all(&output_index).expect("Failed to create output directory");
+        if args.extract_index_pages {
+            std::fs::create_dir_all(&output_index).expect("Failed to create output directory");
+            if output_index.read_dir().unwrap().next().is_some() {
+                panic!("{} is not empty!", output_index.to_str().unwrap());
+            }
+        }
+
         std::fs::create_dir_all(&output_blob).expect("Failed to create output directory");
-        if output_index.read_dir().unwrap().next().is_some()
-            || output_blob.read_dir().unwrap().next().is_some()
-        {
+        if output_blob.read_dir().unwrap().next().is_some() {
             panic!(
                 "Output directory is not empty: {}",
-                args.output.to_str().unwrap()
+                output_blob.to_str().unwrap()
             );
         }
     }
@@ -134,13 +145,13 @@ fn main() {
 
         match validate_page(&buffer[head_pointer..][..PAGE_SIZE]) {
             PageValidationResult::Valid(page) => {
-                debug!("Page validated {page:x?}");
+                trace!("Page validated {page:x?}");
                 valid_counter += 1;
                 match page.header.page_type {
                     PageType::Index => {
                         let index_header = IndexHeader::from_bytes(page.body()).unwrap();
-                        debug!("Index: {index_header:?}");
-                        if !args.dry_run {
+                        trace!("Index: {index_header:?}");
+                        if !args.dry_run && args.extract_index_pages {
                             let save_path =
                                 output_index.join(format!("{:016}.page", index_header.index_id));
                             let mut f = File::options()
@@ -164,7 +175,9 @@ fn main() {
                             f.write(page.raw_data).expect("Failed to write");
                         }
                     }
-                    _ => {}
+                    _ => {
+                        debug!("Unprocessed page type: {:?}", page.header.page_type);
+                    }
                 }
                 step_size = PAGE_SIZE;
             }

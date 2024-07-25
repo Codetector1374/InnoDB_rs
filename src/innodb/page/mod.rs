@@ -11,7 +11,7 @@ use num_enum::FromPrimitive;
 const HASH_RANDOM_MASK: u32 = 1_463_735_687;
 const HASH_RANDOM_MASK2: u32 = 1_653_893_711;
 
-const FIL_PAGE_SIZE: usize = 16384;
+pub const FIL_PAGE_SIZE: usize = 16384;
 const FIL_TRAILER_SIZE: usize = 8;
 
 const FIL_HEADER_OFFSET: usize = 0;
@@ -52,7 +52,6 @@ impl <'a> Debug for Page<'a> {
         f.debug_struct("Page")
             .field("header", &self.header)
             .field("trailer", &self.trailer)
-            .field("data", &"hidden")
             .finish()
     }
 }
