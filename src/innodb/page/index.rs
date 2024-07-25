@@ -120,7 +120,7 @@ impl<'a> IndexPage<'a> {
     }
 
     pub fn record_at(&self, offset: usize) -> Result<RecordHeader> {
-        RecordHeader::from_record_offset(&self.page.raw_data, offset)
+        RecordHeader::from_record_offset(self.page.raw_data, offset)
     }
 
     pub fn infimum(&self) -> Result<RecordHeader> {

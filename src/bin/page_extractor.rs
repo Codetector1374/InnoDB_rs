@@ -33,7 +33,12 @@ struct Arguments {
     #[arg(short='v', action = clap::ArgAction::Count, help="verbose level")]
     verbose: u8,
 
-    #[arg(short = 'o', long = "output", default_value = "output", help="output directory name")]
+    #[arg(
+        short = 'o',
+        long = "output",
+        default_value = "output",
+        help = "output directory name"
+    )]
     output: PathBuf,
 
     file: PathBuf,
@@ -55,10 +60,8 @@ fn validate_page(page: &[u8]) -> PageValidationResult {
         || page.innodb_checksum() == page.header.new_checksum
     {
         return PageValidationResult::Valid(page);
-    } else {
-        if (page.header.lsn as u32) == page.trailer.lsn_low_32 {
-            return PageValidationResult::InvalidChecksum;
-        }
+    } else if (page.header.lsn as u32) == page.trailer.lsn_low_32 {
+        return PageValidationResult::InvalidChecksum;
     }
 
     PageValidationResult::NotAPage
@@ -82,7 +85,8 @@ fn main() {
     let output_by_tablespace = args.output.join("BY_TABLESPACE");
     if !args.dry_run {
         if args.by_tablespace {
-            std::fs::create_dir_all(&output_by_tablespace).expect("Failed to create output directory");
+            std::fs::create_dir_all(&output_by_tablespace)
+                .expect("Failed to create output directory");
             if output_by_tablespace.read_dir().unwrap().next().is_some() {
                 panic!(
                     "Output directory is not empty: {}",
@@ -132,6 +136,7 @@ fn main() {
     let mut valid_index_counter = 0usize;
     let mut failed_checksum = 0usize;
 
+    #[allow(clippy::identity_op)]
     const CACHE_BUFFER_MAX_SIZE: usize = 1 * 1024 * 1024;
     const STEP_SIZE: usize = 4096;
     const PAGE_SIZE: usize = 16384;
@@ -172,7 +177,10 @@ fn main() {
                             .create(true)
                             .open(save_path)
                             .expect("Can't open file to save pages");
-                        f.write(page.raw_data).expect("Failed to write");
+                        debug_assert_eq!(
+                            f.write(page.raw_data).expect("Failed to write"),
+                            page.raw_data.len()
+                        );
                     }
                 } else {
                     // Not by table space
@@ -188,7 +196,10 @@ fn main() {
                                     .create(true)
                                     .open(save_path)
                                     .expect("Can't open file to save pages");
-                                f.write(page.raw_data).expect("Failed to write");
+                                debug_assert_eq!(
+                                    f.write(page.raw_data).expect("Failed to write"),
+                                    page.raw_data.len()
+                                );
                             }
                             valid_index_counter += 1;
                         }
@@ -206,7 +217,7 @@ fn main() {
         }
 
         head_pointer += step_size;
-        pb.as_ref().map(|b| b.inc(step_size as u64));
+        if let Some(b) = pb.as_ref() { b.inc(step_size as u64) }
     }
 
     info!("found {valid_counter} pages that have valid checksum ({valid_index_counter} index pages), {failed_checksum} pages only failed checksum");

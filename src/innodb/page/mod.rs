@@ -47,7 +47,7 @@ pub struct Page<'a> {
     pub raw_data: &'a [u8],
 }
 
-impl <'a> Debug for Page<'a> {
+impl<'a> Debug for Page<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Page")
             .field("header", &self.header)
@@ -56,18 +56,17 @@ impl <'a> Debug for Page<'a> {
     }
 }
 
-impl <'a> Page<'a> {
+impl<'a> Page<'a> {
     pub fn from_bytes(buf: &'a [u8]) -> Result<Page<'a>> {
         if buf.len() != 16384 {
             return Err(Error::msg("Page is 16kB"));
         }
 
-        let mut page = Page::default();
-        page.header = FILHeader::from_bytes(&buf[0..38])?;
-        page.trailer = FILTrailer::from_bytes(&buf[(FIL_PAGE_SIZE - FIL_TRAILER_SIZE)..])?;
-        page.raw_data = buf;
-
-        Ok(page)
+        Ok(Page {
+            header: FILHeader::from_bytes(&buf[0..38])?,
+            trailer: FILTrailer::from_bytes(&buf[(FIL_PAGE_SIZE - FIL_TRAILER_SIZE)..])?,
+            raw_data: buf,
+        })
     }
 
     pub fn partial_page_header(&self) -> &[u8] {
@@ -162,6 +161,7 @@ pub enum PageType {
     Undefined = 0xFFFF,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for PageType {
     fn default() -> Self {
         PageType::Allocated
@@ -191,14 +191,14 @@ impl FILHeader {
         let prev = u32::from_be_bytes([buffer[8], buffer[9], buffer[10], buffer[11]]);
         let next = u32::from_be_bytes([buffer[12], buffer[13], buffer[14], buffer[15]]);
         let lsn = u64::from_be_bytes([
-            buffer[16], buffer[17], buffer[18], buffer[19],
-            buffer[20], buffer[21], buffer[22], buffer[23],
+            buffer[16], buffer[17], buffer[18], buffer[19], buffer[20], buffer[21], buffer[22],
+            buffer[23],
         ]);
         let page_type_value = u16::from_be_bytes([buffer[24], buffer[25]]);
         let page_type = PageType::from_primitive(page_type_value);
         let flush_lsn = u64::from_be_bytes([
-            buffer[26], buffer[27], buffer[28], buffer[29],
-            buffer[30], buffer[31], buffer[32], buffer[33],
+            buffer[26], buffer[27], buffer[28], buffer[29], buffer[30], buffer[31], buffer[32],
+            buffer[33],
         ]);
         let space_id = u32::from_be_bytes([buffer[34], buffer[35], buffer[36], buffer[37]]);
 

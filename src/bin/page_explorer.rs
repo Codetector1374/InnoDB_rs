@@ -6,10 +6,13 @@ use std::{
 
 use bitvec::vec::BitVec;
 use clap::Parser;
-use innodb::innodb::{page::{
-    index::{IndexHeader, IndexPage},
-    Page, PageType, FIL_PAGE_SIZE,
-}, record::RecordType};
+use innodb::innodb::{
+    page::{
+        index::IndexPage,
+        Page, PageType, FIL_PAGE_SIZE,
+    },
+    record::RecordType,
+};
 use tracing::{debug, info, trace, warn, Level};
 
 #[derive(Parser, Debug)]
@@ -37,12 +40,14 @@ pub fn explore_index(index: IndexPage) {
     let mut counter = 1;
     loop {
         trace!("{counter}: {:#?}", current_header);
-        let next_header = index.record_at(current_header.next_record_offset()).unwrap();
+        let next_header = index
+            .record_at(current_header.next_record_offset())
+            .unwrap();
         if current_header.record_type == RecordType::Supremum {
             break;
         }
         current_header = next_header;
-        counter+=1;
+        counter += 1;
     }
 }
 
@@ -64,12 +69,9 @@ fn explore_page(file_offset: usize, page: Page) {
 
     trace!("{:x?}", page);
 
-    match page.header.page_type {
-        PageType::Index => {
-            let index_page = IndexPage::try_from_page(page).expect("Failed to construct index");
-            explore_index(index_page);
-        }
-        _ => {}
+    if page.header.page_type == PageType::Index {
+        let index_page = IndexPage::try_from_page(page).expect("Failed to construct index");
+        explore_index(index_page);
     }
 }
 
@@ -91,7 +93,7 @@ fn main() {
     let mut reader = BufReader::new(File::open(&args.file).expect("Can't open page file"));
     let mut buffer = Box::<[u8]>::from([0u8; FIL_PAGE_SIZE]);
     let mut counter = 0usize;
-    let mut page_ids: BitVec = BitVec::new();
+    let page_ids: BitVec = BitVec::new();
     loop {
         let cur_offset = counter * FIL_PAGE_SIZE;
         counter += 1;
