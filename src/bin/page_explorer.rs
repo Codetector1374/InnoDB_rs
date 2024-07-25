@@ -1,4 +1,5 @@
 use std::{
+    any::Any,
     fs::File,
     io::{BufReader, Read},
     path::PathBuf,
@@ -30,17 +31,15 @@ struct Arguments {
 pub fn explore_index(index: IndexPage) {
     let index_header = &index.index_header;
     debug!("Index Header:\n{:#?}", &index_header);
-    let mut current_header = index.infimum().unwrap();
+    let mut record = index.infimum().unwrap();
     let mut counter = 1;
     loop {
-        trace!("{counter}: {:#?}", current_header);
-        let next_header = index
-            .record_at(current_header.next_record_offset())
-            .unwrap();
-        if current_header.record_type == RecordType::Supremum {
+        trace!("{counter}: {:#?}", record);
+        if record.header.record_type == RecordType::Supremum {
             break;
         }
-        current_header = next_header;
+        let new_rec = record.next().unwrap();
+        record = new_rec;
         counter += 1;
     }
 }

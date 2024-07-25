@@ -3,7 +3,7 @@ use num_enum::TryFromPrimitive;
 
 use crate::innodb::{page::record::RecordHeader, InnoDBError};
 
-use super::{Page, PageType};
+use super::{record::Record, Page, PageType};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -112,22 +112,21 @@ impl<'a> IndexPage<'a> {
             }));
         }
 
-
         Ok(IndexPage {
             index_header: IndexHeader::from_bytes(page.body())?,
             page,
         })
     }
 
-    pub fn record_at(&self, offset: usize) -> Result<RecordHeader> {
-        RecordHeader::from_record_offset(self.page.raw_data, offset)
+    pub fn record_at(&self, offset: usize) -> Result<Record> {
+        Record::try_from_offset(self.page.raw_data, offset)
     }
 
-    pub fn infimum(&self) -> Result<RecordHeader> {
+    pub fn infimum(&self) -> Result<Record> {
         self.record_at(99)
     }
 
-    pub fn supremum(&self) -> Result<RecordHeader> {
+    pub fn supremum(&self) -> Result<Record> {
         self.record_at(112)
     }
 }

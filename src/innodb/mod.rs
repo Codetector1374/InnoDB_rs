@@ -1,4 +1,5 @@
 pub mod page;
+pub mod table;
 
 use std::{
     error::Error,

@@ -1,27 +1,8 @@
+use std::fmt::Debug;
+
 use anyhow::{Error, Result};
-use bitvec::vec::BitVec;
 use num_enum::TryFromPrimitive;
-
-#[derive(Debug, Clone)]
-pub enum RecordFieldType {
-    TinyInt,
-    SmallInt,
-    MediumInt,
-    Int,
-    BigInt,
-
-    VarChar(u16),
-    Char(u8),
-}
-
-#[derive(Debug, Clone)]
-pub struct RecordField {
-    pub name: String,
-    pub field_type: RecordFieldType,
-    pub nullable: bool,
-    pub signed: bool,
-    pub primary_key: bool,
-}
+use tracing::error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, TryFromPrimitive)]
 #[repr(u8)]
@@ -61,7 +42,7 @@ pub struct RecordHeader {
 }
 
 impl RecordHeader {
-    pub fn from_record_offset(buffer: &[u8], offset: usize) -> Result<RecordHeader> {
+    pub fn try_from_offset(buffer: &[u8], offset: usize) -> Result<RecordHeader> {
         assert!(offset < u16::MAX as usize);
         let record_type_order = u16::from_be_bytes([buffer[offset - 4], buffer[offset - 3]]);
         let owned_flags = u8::from_be_bytes([buffer[offset - 5]]);
@@ -70,7 +51,8 @@ impl RecordHeader {
             num_records_owned: owned_flags & 0xF,
             order: record_type_order >> 3,
             record_type: RecordType::try_from_primitive((record_type_order & 0x7) as u8)?,
-            next_record_offset: (offset as u16).checked_add_signed(i16::from_be_bytes([buffer[offset - 2], buffer[offset - 1]])),
+            next_record_offset: (offset as u16)
+                .checked_add_signed(i16::from_be_bytes([buffer[offset - 2], buffer[offset - 1]])),
         })
     }
 
@@ -79,17 +61,64 @@ impl RecordHeader {
     }
 }
 
+pub struct Record<'a> {
+    pub header: RecordHeader,
+    pub offset: usize, // record starting offset in the buf, header is negative from that
+    pub buf: &'a [u8],
+}
+
+impl<'a> Debug for Record<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Record")
+            .field("header", &self.header)
+            .field("offset", &self.offset)
+            .finish()
+    }
+}
+
+impl<'a> Record<'a> {
+    pub fn try_from_offset(buffer: &'a [u8], offset: usize) -> Result<Record> {
+        Ok(Record {
+            header: RecordHeader::try_from_offset(buffer, offset)?,
+            offset: offset,
+            buf: buffer,
+        })
+    }
+
+    pub fn next(&self) -> Option<Record<'a>> {
+        if self.header.record_type == RecordType::Supremum {
+            return None;
+        }
+        match Self::try_from_offset(self.buf, self.header.next_record_offset()) {
+            Ok(record) => Some(record),
+            Err(e) => {
+                error!("Non-Supremum record does not have next: {:?}", e);
+                None
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
-    use std::{fs::File, io::{BufReader, Read, Seek}, path::PathBuf};
+    use std::{
+        fs::File,
+        io::{BufReader, Read, Seek},
+        path::PathBuf,
+    };
 
-    use crate::innodb::{page::{index::IndexPage, Page, PageType, FIL_PAGE_SIZE}, record::RecordType};
+    use crate::innodb::page::{
+        index::IndexPage, record::RecordType, Page, PageType, FIL_PAGE_SIZE,
+    };
 
     #[test]
     fn test_record_header_parse() {
-        let test_data_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data/t_empty.ibd");
+        let test_data_path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data/t_empty.ibd");
         let mut reader = BufReader::new(File::open(test_data_path).unwrap());
-        reader.seek(std::io::SeekFrom::Start(3 * FIL_PAGE_SIZE as u64)).unwrap();
+        reader
+            .seek(std::io::SeekFrom::Start(3 * FIL_PAGE_SIZE as u64))
+            .unwrap();
         let mut buf = Box::<[u8]>::from([0u8; FIL_PAGE_SIZE]);
 
         // Verify the page is loaded correctly
@@ -99,7 +128,7 @@ mod test {
         assert_eq!(page.header.page_type, PageType::Index);
         let index_page = IndexPage::try_from_page(page).unwrap();
 
-        let inf_header = index_page.infimum().expect("INF exist");
+        let inf_header = index_page.infimum().expect("INF exist").header;
 
         assert_eq!(inf_header.record_type, RecordType::Infimum);
         assert_eq!(inf_header.next_record_offset, Some(112));
@@ -107,6 +136,5 @@ mod test {
         assert_eq!(inf_header.num_records_owned, 1);
         assert_eq!(inf_header.info_flags.min_rec, false);
         assert_eq!(inf_header.info_flags.deleted, false);
-
     }
 }

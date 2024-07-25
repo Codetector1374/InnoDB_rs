@@ -217,7 +217,9 @@ fn main() {
         }
 
         head_pointer += step_size;
-        if let Some(b) = pb.as_ref() { b.inc(step_size as u64) }
+        if let Some(b) = pb.as_ref() {
+            b.inc(step_size as u64)
+        }
     }
 
     info!("found {valid_counter} pages that have valid checksum ({valid_index_counter} index pages), {failed_checksum} pages only failed checksum");
