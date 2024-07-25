@@ -1,5 +1,4 @@
 pub mod page;
-pub mod record;
 
 use std::{
     error::Error,

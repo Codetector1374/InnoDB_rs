@@ -6,13 +6,7 @@ use std::{
 
 use bitvec::vec::BitVec;
 use clap::Parser;
-use innodb::innodb::{
-    page::{
-        index::IndexPage,
-        Page, PageType, FIL_PAGE_SIZE,
-    },
-    record::RecordType,
-};
+use innodb::innodb::page::{index::IndexPage, record::RecordType, Page, PageType, FIL_PAGE_SIZE};
 use tracing::{debug, info, trace, warn, Level};
 
 #[derive(Parser, Debug)]

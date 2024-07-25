@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Error, Result};
 use num_enum::TryFromPrimitive;
 
-use crate::innodb::{record::RecordHeader, InnoDBError};
+use crate::innodb::{page::record::RecordHeader, InnoDBError};
 
 use super::{Page, PageType};
 
