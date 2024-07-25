@@ -18,19 +18,22 @@ struct Arguments {
     )]
     size: Option<usize>,
 
-    #[arg(short='n', action = clap::ArgAction::SetTrue)]
+    #[arg(short='n', action = clap::ArgAction::SetTrue, help="dry run (no action is taken)")]
     dry_run: bool,
 
     #[arg(long="no-index-page", action = clap::ArgAction::SetFalse)]
     extract_index_pages: bool,
 
-    #[arg(long, action = clap::ArgAction::SetTrue)]
+    #[arg(long="by-tablespace", action = clap::ArgAction::SetTrue, conflicts_with="extract_index_pages")]
+    by_tablespace: bool,
+
+    #[arg(long="no-color", action = clap::ArgAction::SetFalse)]
     color: bool,
 
-    #[arg(short='v', action = clap::ArgAction::Count)]
+    #[arg(short='v', action = clap::ArgAction::Count, help="verbose level")]
     verbose: u8,
 
-    #[arg(short = 'o', long = "output", default_value = "output")]
+    #[arg(short = 'o', long = "output", default_value = "output", help="output directory name")]
     output: PathBuf,
 
     file: PathBuf,
@@ -76,20 +79,31 @@ fn main() {
 
     let output_index = args.output.join("FIL_PAGE_INDEX");
     let output_blob = args.output.join("FIL_PAGE_TYPE_BLOB");
+    let output_by_tablespace = args.output.join("BY_TABLESPACE");
     if !args.dry_run {
-        if args.extract_index_pages {
-            std::fs::create_dir_all(&output_index).expect("Failed to create output directory");
-            if output_index.read_dir().unwrap().next().is_some() {
-                panic!("{} is not empty!", output_index.to_str().unwrap());
+        if args.by_tablespace {
+            std::fs::create_dir_all(&output_by_tablespace).expect("Failed to create output directory");
+            if output_by_tablespace.read_dir().unwrap().next().is_some() {
+                panic!(
+                    "Output directory is not empty: {}",
+                    output_blob.to_str().unwrap()
+                );
             }
-        }
+        } else {
+            if args.extract_index_pages {
+                std::fs::create_dir_all(&output_index).expect("Failed to create output directory");
+                if output_index.read_dir().unwrap().next().is_some() {
+                    panic!("{} is not empty!", output_index.to_str().unwrap());
+                }
+            }
 
-        std::fs::create_dir_all(&output_blob).expect("Failed to create output directory");
-        if output_blob.read_dir().unwrap().next().is_some() {
-            panic!(
-                "Output directory is not empty: {}",
-                output_blob.to_str().unwrap()
-            );
+            std::fs::create_dir_all(&output_blob).expect("Failed to create output directory");
+            if output_blob.read_dir().unwrap().next().is_some() {
+                panic!(
+                    "Output directory is not empty: {}",
+                    output_blob.to_str().unwrap()
+                );
+            }
         }
     }
 
@@ -147,36 +161,40 @@ fn main() {
             PageValidationResult::Valid(page) => {
                 trace!("Page validated {page:x?}");
                 valid_counter += 1;
-                match page.header.page_type {
-                    PageType::Index => {
-                        let index_header = IndexHeader::from_bytes(page.body()).unwrap();
-                        trace!("Index: {index_header:?}");
-                        if !args.dry_run && args.extract_index_pages {
-                            let save_path =
-                                output_index.join(format!("{:016}.page", index_header.index_id));
-                            let mut f = File::options()
-                                .append(true)
-                                .create(true)
-                                .open(save_path)
-                                .expect("Can't open file to save pages");
-                            f.write(page.raw_data).expect("Failed to write");
-                        }
-                        valid_index_counter += 1;
+
+                // Handling is differnt if we are only grouping by table space
+                if args.by_tablespace {
+                    if !args.dry_run {
+                        let save_path =
+                            output_by_tablespace.join(format!("{:08}.pages", page.header.space_id));
+                        let mut f = File::options()
+                            .append(true)
+                            .create(true)
+                            .open(save_path)
+                            .expect("Can't open file to save pages");
+                        f.write(page.raw_data).expect("Failed to write");
                     }
-                    PageType::Blob => {
-                        if !args.dry_run {
-                            let save_path =
-                                output_blob.join(format!("{:016}.page", page.header.offset));
-                            let mut f = File::options()
-                                .append(true)
-                                .create(true)
-                                .open(save_path)
-                                .expect("Can't open file to save pages");
-                            f.write(page.raw_data).expect("Failed to write");
+                } else {
+                    // Not by table space
+                    match page.header.page_type {
+                        PageType::Index => {
+                            let index_header = IndexHeader::from_bytes(page.body()).unwrap();
+                            trace!("Index: {index_header:?}");
+                            if !args.dry_run && args.extract_index_pages {
+                                let save_path = output_index
+                                    .join(format!("{:016}.page", index_header.index_id));
+                                let mut f = File::options()
+                                    .append(true)
+                                    .create(true)
+                                    .open(save_path)
+                                    .expect("Can't open file to save pages");
+                                f.write(page.raw_data).expect("Failed to write");
+                            }
+                            valid_index_counter += 1;
                         }
-                    }
-                    _ => {
-                        debug!("Unprocessed page type: {:?}", page.header.page_type);
+                        _ => {
+                            debug!("Unprocessed page type: {:?}", page.header.page_type);
+                        }
                     }
                 }
                 step_size = PAGE_SIZE;

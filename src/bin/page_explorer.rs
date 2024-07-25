@@ -1,11 +1,11 @@
 use std::{
     fs::File,
-    io::{BufRead, BufReader, Read},
+    io::{BufReader, Read},
     path::PathBuf,
 };
 
 use clap::Parser;
-use innodb::innodb::page::{Page, FIL_PAGE_SIZE};
+use innodb::innodb::page::{index::IndexHeader, Page, PageType, FIL_PAGE_SIZE};
 use tracing::{debug, info, trace, warn, Level};
 
 #[derive(Parser, Debug)]
@@ -13,8 +13,11 @@ struct Arguments {
     #[arg(short='v', action = clap::ArgAction::Count)]
     verbose: u8,
 
-    #[arg(long, action = clap::ArgAction::SetTrue)]
+    #[arg(long="no-color", action = clap::ArgAction::SetFalse)]
     color: bool,
+
+    #[arg(long)]
+    limit: Option<usize>,
 
     #[arg(
         help = "Page(s) file, should contain one or multiple raw 16K page",
@@ -38,7 +41,16 @@ fn process_page(file_offset: usize, page: Page) {
         );
         return;
     }
+
     trace!("{:x?}", page);
+
+    match page.header.page_type {
+        PageType::Index => {
+            let index_header = IndexHeader::from_bytes(page.body()).unwrap();
+            debug!("Index Header:\n{:#?}", &index_header);
+        },
+        _ => {}
+    }
 }
 
 fn main() {
@@ -52,6 +64,7 @@ fn main() {
             _ => Level::TRACE,
         })
         .with_ansi(args.color)
+        .without_time()
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("Failed to setup Logger");
 
@@ -70,6 +83,13 @@ fn main() {
                 process_page(cur_offset, page);
             }
             Err(e) => panic!("Read error: {:?}", e),
+        }
+
+        if let Some(limit) = args.limit {
+            if counter >= limit {
+                info!("Exiting early due to --limit argument");
+                break;
+            }
         }
     }
 
