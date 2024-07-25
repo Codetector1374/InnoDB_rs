@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Error, Result};
 use num_enum::TryFromPrimitive;
 
-use crate::innodb::InnoDBError;
+use crate::innodb::{record::RecordHeader, InnoDBError};
 
 use super::{Page, PageType};
 
@@ -104,7 +104,7 @@ pub struct IndexPage<'a> {
 }
 
 impl<'a> IndexPage<'a> {
-    pub fn try_from_page(page: Page) -> Result<Self> {
+    pub fn try_from_page(page: Page<'a>) -> Result<Self> {
         if page.header.page_type != PageType::Index {
             return Err(anyhow!(InnoDBError::InvalidPageType {
                 expected: PageType::Index,
@@ -112,6 +112,22 @@ impl<'a> IndexPage<'a> {
             }));
         }
 
-        todo!()
+
+        Ok(IndexPage {
+            index_header: IndexHeader::from_bytes(page.body())?,
+            page,
+        })
+    }
+
+    pub fn record_at(&self, offset: usize) -> Result<RecordHeader> {
+        RecordHeader::from_record_offset(&self.page.raw_data, offset)
+    }
+
+    pub fn infimum(&self) -> Result<RecordHeader> {
+        self.record_at(99)
+    }
+
+    pub fn supremum(&self) -> Result<RecordHeader> {
+        self.record_at(112)
     }
 }

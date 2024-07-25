@@ -4,8 +4,12 @@ use std::{
     path::PathBuf,
 };
 
+use bitvec::vec::BitVec;
 use clap::Parser;
-use innodb::innodb::page::{index::IndexHeader, Page, PageType, FIL_PAGE_SIZE};
+use innodb::innodb::{page::{
+    index::{IndexHeader, IndexPage},
+    Page, PageType, FIL_PAGE_SIZE,
+}, record::RecordType};
 use tracing::{debug, info, trace, warn, Level};
 
 #[derive(Parser, Debug)]
@@ -26,7 +30,23 @@ struct Arguments {
     file: PathBuf,
 }
 
-fn process_page(file_offset: usize, page: Page) {
+pub fn explore_index(index: IndexPage) {
+    let index_header = &index.index_header;
+    debug!("Index Header:\n{:#?}", &index_header);
+    let mut current_header = index.infimum().unwrap();
+    let mut counter = 1;
+    loop {
+        trace!("{counter}: {:#?}", current_header);
+        let next_header = index.record_at(current_header.next_record_offset()).unwrap();
+        if current_header.record_type == RecordType::Supremum {
+            break;
+        }
+        current_header = next_header;
+        counter+=1;
+    }
+}
+
+fn explore_page(file_offset: usize, page: Page) {
     if page.crc32_checksum() == page.header.new_checksum {
         debug!("Page @ {:#x} byte has valid CRC32c checksum", file_offset);
     } else if page.innodb_checksum() == page.header.new_checksum {
@@ -46,9 +66,9 @@ fn process_page(file_offset: usize, page: Page) {
 
     match page.header.page_type {
         PageType::Index => {
-            let index_header = IndexHeader::from_bytes(page.body()).unwrap();
-            debug!("Index Header:\n{:#?}", &index_header);
-        },
+            let index_page = IndexPage::try_from_page(page).expect("Failed to construct index");
+            explore_index(index_page);
+        }
         _ => {}
     }
 }
@@ -71,6 +91,7 @@ fn main() {
     let mut reader = BufReader::new(File::open(&args.file).expect("Can't open page file"));
     let mut buffer = Box::<[u8]>::from([0u8; FIL_PAGE_SIZE]);
     let mut counter = 0usize;
+    let mut page_ids: BitVec = BitVec::new();
     loop {
         let cur_offset = counter * FIL_PAGE_SIZE;
         counter += 1;
@@ -80,7 +101,7 @@ fn main() {
                     break;
                 }
                 let page = Page::from_bytes(&buffer).unwrap();
-                process_page(cur_offset, page);
+                explore_page(cur_offset, page);
             }
             Err(e) => panic!("Read error: {:?}", e),
         }

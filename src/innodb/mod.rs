@@ -1,11 +1,12 @@
+pub mod page;
+pub mod record;
+
 use std::{
     error::Error,
     fmt::{Debug, Display},
 };
 
 use page::PageType;
-
-pub mod page;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InnoDBError {

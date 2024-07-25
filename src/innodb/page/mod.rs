@@ -171,7 +171,7 @@ impl Default for PageType {
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct FILHeader {
     pub new_checksum: u32,
-    pub offset: u32,
+    pub offset: u32, // offset (page number)
     pub prev: u32,
     pub next: u32,
     pub lsn: u64,
