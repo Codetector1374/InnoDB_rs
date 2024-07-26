@@ -1,13 +1,19 @@
 use std::{
-    any::Any,
     fs::File,
     io::{BufReader, Read},
     path::PathBuf,
+    sync::Arc,
 };
 
 use bitvec::vec::BitVec;
 use clap::Parser;
-use innodb::innodb::page::{index::IndexPage, record::RecordType, Page, PageType, FIL_PAGE_SIZE};
+use innodb::innodb::{
+    page::{
+        index::{record::RecordType, IndexPage},
+        Page, PageType, FIL_PAGE_SIZE,
+    },
+    table::{Field, FieldType, Row, TableDefinition},
+};
 use tracing::{debug, info, trace, warn, Level};
 
 #[derive(Parser, Debug)]
@@ -28,16 +34,25 @@ struct Arguments {
     file: PathBuf,
 }
 
-pub fn explore_index(index: IndexPage) {
+pub fn explore_index(index: IndexPage, table_def_opt: Option<&Arc<TableDefinition>>) {
     let index_header = &index.index_header;
     debug!("Index Header:\n{:#?}", &index_header);
     let mut record = index.infimum().unwrap();
     let mut counter = 1;
     loop {
-        trace!("{counter}: {:#?}", record);
+        if record.header.record_type == RecordType::Conventional {
+            if let Some(table) = table_def_opt {
+                let row = Row::try_from_record_and_table(&record, table).expect("Failed to parse row");
+                trace!("{counter} Row: {:#?}", row);
+                debug!("{:?}", row.values());
+            }
+        } else {
+            debug!("{} Record: {:?}", counter, record);
+        }
         if record.header.record_type == RecordType::Supremum {
             break;
         }
+
         let new_rec = record.next().unwrap();
         record = new_rec;
         counter += 1;
@@ -60,11 +75,35 @@ fn explore_page(file_offset: usize, page: Page) {
         return;
     }
 
+    let def = TableDefinition {
+        primary_keys: vec![
+            // name, type, nullable, signed, pk
+            Field::new("uid", FieldType::MediumInt, false, false, true),
+        ],
+        non_key_fields: vec![
+            // name, type, nullable, signed, pk
+            Field::new("username", FieldType::VariableChars(15), false, false, false),
+            Field::new("password", FieldType::VariableChars(255), false, false, false),
+            Field::new("secmobicc", FieldType::VariableChars(3), false, false, false),
+            Field::new("secmobile", FieldType::VariableChars(12), false, false, false),
+            Field::new("email", FieldType::VariableChars(255), false, false, false),
+            Field::new("myid", FieldType::VariableChars(30), false, false, false),
+            Field::new("myidkey", FieldType::VariableChars(16), false, false, false),
+            Field::new("regip", FieldType::VariableChars(45), false, false, false),
+            Field::new("regdate", FieldType::Int, false, false, false),
+            Field::new("lastloginip", FieldType::Int, false, true, false),
+            Field::new("lastlogintime", FieldType::Int, false, false, false),
+            Field::new("salt", FieldType::VariableChars(20), false, false, false),
+            Field::new("secques", FieldType::VariableChars(8), false, false, false),
+        ],
+    };
+    let table_def = Arc::new(def);
+
     trace!("{:x?}", page);
 
     if page.header.page_type == PageType::Index {
         let index_page = IndexPage::try_from_page(page).expect("Failed to construct index");
-        explore_index(index_page);
+        explore_index(index_page, Some(&table_def));
     }
 }
 

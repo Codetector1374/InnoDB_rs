@@ -1,9 +1,12 @@
+pub mod record;
+
 use anyhow::{anyhow, Error, Result};
 use num_enum::TryFromPrimitive;
+use record::Record;
 
-use crate::innodb::{page::record::RecordHeader, InnoDBError};
+use crate::innodb::InnoDBError;
 
-use super::{record::Record, Page, PageType};
+use super::{Page, PageType};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]

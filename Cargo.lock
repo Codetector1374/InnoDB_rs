@@ -219,6 +219,7 @@ dependencies = [
  "crc",
  "indicatif",
  "num_enum",
+ "pretty-hex",
  "simple_endian",
  "tracing",
  "tracing-subscriber",
@@ -323,6 +324,12 @@ name = "portable-atomic"
 version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da544ee218f0d287a911e9c99a39a8c9bc8fcad3cb8db5959940044ecfc67265"
+
+[[package]]
+name = "pretty-hex"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbc83ee4a840062f368f9096d80077a9841ec117e17e7f700df81958f1451254"
 
 [[package]]
 name = "proc-macro-crate"

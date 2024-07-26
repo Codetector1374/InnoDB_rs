@@ -1,8 +1,10 @@
 use std::fmt::Debug;
 
-use anyhow::{Error, Result};
+use anyhow::{anyhow, Error, Result};
 use num_enum::TryFromPrimitive;
-use tracing::error;
+use tracing::{debug, error, trace};
+
+use crate::innodb::{table::{Field, FieldValue, TableDefinition}, InnoDBError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, TryFromPrimitive)]
 #[repr(u8)]
@@ -32,6 +34,8 @@ impl InfoFlags {
     }
 }
 
+pub const RECORD_HEADER_FIXED_LENGTH: usize = 5;
+
 #[derive(Debug, Clone)]
 pub struct RecordHeader {
     pub info_flags: InfoFlags,   // 4 bit,
@@ -44,6 +48,9 @@ pub struct RecordHeader {
 impl RecordHeader {
     pub fn try_from_offset(buffer: &[u8], offset: usize) -> Result<RecordHeader> {
         assert!(offset < u16::MAX as usize);
+        if offset < RECORD_HEADER_FIXED_LENGTH {
+            return Err(anyhow!(InnoDBError::InvalidLength));
+        }
         let record_type_order = u16::from_be_bytes([buffer[offset - 4], buffer[offset - 3]]);
         let owned_flags = u8::from_be_bytes([buffer[offset - 5]]);
         Ok(RecordHeader {
@@ -61,6 +68,7 @@ impl RecordHeader {
     }
 }
 
+#[derive(Clone)]
 pub struct Record<'a> {
     pub header: RecordHeader,
     pub offset: usize, // record starting offset in the buf, header is negative from that
@@ -108,7 +116,7 @@ mod test {
     };
 
     use crate::innodb::page::{
-        index::IndexPage, record::RecordType, Page, PageType, FIL_PAGE_SIZE,
+        index::{IndexPage, record::RecordType}, Page, PageType, FIL_PAGE_SIZE,
     };
 
     #[test]
