@@ -80,52 +80,11 @@ fn explore_page(file_offset: usize, page: Page) {
         return;
     }
 
-    let def = TableDefinition {
-        name: String::from("pre_ucenter_members"),
-        primary_keys: vec![
-            // name, type, nullable, signed, pk
-            Field::new("uid", FieldType::MediumInt(true), false),
-        ],
-        non_key_fields: vec![
-            // name, type, nullable, signed, pk
-            Field::new(
-                "username",
-                FieldType::VariableChars(15),
-                false,
-            ),
-            Field::new(
-                "password",
-                FieldType::VariableChars(255),
-                false,
-            ),
-            Field::new(
-                "secmobicc",
-                FieldType::VariableChars(3),
-                false,
-            ),
-            Field::new(
-                "secmobile",
-                FieldType::VariableChars(12),
-                false,
-            ),
-            Field::new("email", FieldType::VariableChars(255), false),
-            Field::new("myid", FieldType::VariableChars(30), false),
-            Field::new("myidkey", FieldType::VariableChars(16), false),
-            Field::new("regip", FieldType::VariableChars(45), false),
-            Field::new("regdate", FieldType::Int(false), false),
-            Field::new("lastloginip", FieldType::Int(true), false),
-            Field::new("lastlogintime", FieldType::Int(false), false),
-            Field::new("salt", FieldType::VariableChars(20), false),
-            Field::new("secques", FieldType::VariableChars(8), false),
-        ],
-    };
-    let table_def = Arc::new(def);
-
     trace!("{:x?}", page);
 
     if page.header.page_type == PageType::Index {
         let index_page = IndexPage::try_from_page(page).expect("Failed to construct index");
-        explore_index(index_page, Some(&table_def));
+        // explore_index(index_page, Some(&table_def));
     }
 }
 

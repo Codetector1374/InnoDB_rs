@@ -13,21 +13,13 @@ use sqlparser::{
 };
 use tracing::debug;
 
-#[derive(Debug, Default)]
+use crate::innodb::charset::InnoDBCharset;
+
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct TableDefinition {
     pub name: String,
     pub primary_keys: Vec<Field>,
     pub non_key_fields: Vec<Field>,
-}
-
-fn character_length_to_u64(l: Option<CharacterLength>) -> Option<u64> {
-    if let Some(len) = l {
-        return match len {
-            CharacterLength::IntegerLength { length, unit: _ } => Some(length),
-            CharacterLength::Max => None,
-        };
-    }
-    None
 }
 
 impl TableDefinition {
@@ -36,6 +28,11 @@ impl TableDefinition {
         let stmt = parser.parse_statement()?;
         if let Statement::CreateTable(parsed_table) = stmt {
             let mut table_def = TableDefinition::default();
+
+            let table_charset = match parsed_table.default_charset {
+                Some(charset_str) => InnoDBCharset::with_name(&charset_str).unwrap(),
+                None => InnoDBCharset::Ascii,
+            };
 
             assert_eq!(parsed_table.name.0.len(), 1, "Table name is only 1 part");
             table_def.name = parsed_table.name.0.first().unwrap().value.clone();
@@ -62,12 +59,55 @@ impl TableDefinition {
 
             // Actual Columns
             for column in parsed_table.columns.iter() {
+                let charset = column
+                    .options
+                    .iter()
+                    .map(|opt| &opt.option)
+                    .filter_map(|opt| match opt {
+                        ColumnOption::CharacterSet(name) => {
+                            InnoDBCharset::with_name(&name.0.first().unwrap().value).ok()
+                        }
+                        _ => None,
+                    })
+                    .last()
+                    .unwrap_or(table_charset);
                 let f_type: FieldType = match column.data_type {
                     DataType::Char(len_opt) => {
-                        FieldType::Char(character_length_to_u64(len_opt).unwrap_or(255) as u8)
+                        let final_len = match len_opt {
+                            Some(l) => match l {
+                                CharacterLength::IntegerLength { length, unit: _ } => length,
+                                CharacterLength::Max => u8::MAX as u64,
+                            },
+                            None => u8::MAX as u64,
+                        };
+                        assert!(final_len <= u8::MAX as u64);
+                        if charset.max_len() == 1 {
+                            FieldType::Char(final_len as u8)
+                        } else {
+                            FieldType::VariableChars(final_len as u16)
+                        }
                     }
+                    DataType::Varchar(len_opt) => {
+                        let final_len = match len_opt {
+                            Some(l) => match l {
+                                CharacterLength::IntegerLength { length, unit: _ } => length,
+                                CharacterLength::Max => u16::MAX as u64,
+                            },
+                            None => u16::MAX as u64,
+                        };
+                        assert!(final_len <= u16::MAX as u64);
+                        FieldType::VariableChars(final_len as u16)
+                    }
+                    DataType::UnsignedTinyInt(_) => FieldType::TinyInt(false),
+                    DataType::UnsignedSmallInt(_) => FieldType::SmallInt(false),
+                    DataType::UnsignedMediumInt(_) => FieldType::MediumInt(false),
                     DataType::UnsignedInt(_) => FieldType::Int(false),
+                    DataType::UnsignedBigInt(_) => FieldType::BigInt(false),
+                    DataType::TinyInt(_) => FieldType::TinyInt(true),
+                    DataType::SmallInt(_) => FieldType::SmallInt(true),
+                    DataType::MediumInt(_) => FieldType::MediumInt(true),
                     DataType::Int(_) => FieldType::Int(true),
+                    DataType::BigInt(_) => FieldType::BigInt(true),
                     _ => unimplemented!("mapping of {:?}", column.data_type),
                 };
 
@@ -125,9 +165,11 @@ impl TableDefinition {
 
 #[cfg(test)]
 mod test {
+    use std::{fs::read_to_string, path::PathBuf};
+
     use crate::innodb::table::field::FieldType;
 
-    use super::TableDefinition;
+    use super::{field::Field, TableDefinition};
 
     #[test]
     fn parse_sql_to_table_def_1() {
@@ -151,5 +193,41 @@ mod test {
         assert_eq!(field1.name, "field1");
         assert_eq!(field1.field_type, FieldType::Int(false));
         assert_eq!(field1.nullable, false);
+    }
+
+    #[test]
+    fn prase_sql_complex_table() {
+        let sql = read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("test_data")
+                .join("pre_ucenter_members.sql"),
+        )
+        .unwrap();
+        let reference = TableDefinition {
+            name: String::from("pre_ucenter_members"),
+            primary_keys: vec![
+                // name, type, nullable, signed, pk
+                Field::new("uid", FieldType::MediumInt(false), false),
+            ],
+            non_key_fields: vec![
+                // name, type, nullable, signed, pk
+                Field::new("username", FieldType::VariableChars(15), false),
+                Field::new("password", FieldType::VariableChars(255), false),
+                Field::new("secmobicc", FieldType::VariableChars(3), false),
+                Field::new("secmobile", FieldType::VariableChars(12), false),
+                Field::new("email", FieldType::VariableChars(255), false),
+                Field::new("myid", FieldType::VariableChars(30), false),
+                Field::new("myidkey", FieldType::VariableChars(16), false),
+                Field::new("regip", FieldType::VariableChars(45), false),
+                Field::new("regdate", FieldType::Int(false), false),
+                Field::new("lastloginip", FieldType::Int(true), false),
+                Field::new("lastlogintime", FieldType::Int(false), false),
+                Field::new("salt", FieldType::VariableChars(20), false),
+                Field::new("secques", FieldType::VariableChars(8), false),
+            ],
+        };
+
+        let parsed = TableDefinition::try_from_sql_statement(&sql).expect("Failed to parse SQL");
+        assert_eq!(parsed, reference);
     }
 }

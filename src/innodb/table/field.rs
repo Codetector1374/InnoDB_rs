@@ -48,7 +48,7 @@ pub enum FieldValue {
     String(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Field {
     pub name: String,
     pub field_type: FieldType,
