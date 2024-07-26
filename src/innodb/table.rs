@@ -232,7 +232,7 @@ impl<'a> Row<'a> {
                         let byte2 = *byte_stream.next().unwrap();
                         let tmp = (len << 8) | byte2 as u16;
                         if tmp & 0x4000 != 0 {
-                            warn!("[Unimplemented] Extern!!!");
+                            unimplemented!("[Unimplemented] Extern!!!");
                         }
                         len = tmp & 0x3FFF;
                     }
