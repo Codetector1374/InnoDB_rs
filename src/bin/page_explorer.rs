@@ -12,7 +12,10 @@ use innodb::innodb::{
         index::{record::RecordType, IndexPage},
         Page, PageType, FIL_PAGE_SIZE,
     },
-    table::{Field, FieldType, Row, TableDefinition},
+    table::{
+        field::{Field, FieldType},
+        Row, TableDefinition,
+    },
 };
 use tracing::{debug, info, trace, warn, Level};
 
@@ -42,7 +45,8 @@ pub fn explore_index(index: IndexPage, table_def_opt: Option<&Arc<TableDefinitio
     loop {
         if record.header.record_type == RecordType::Conventional {
             if let Some(table) = table_def_opt {
-                let row = Row::try_from_record_and_table(&record, table).expect("Failed to parse row");
+                let row =
+                    Row::try_from_record_and_table(&record, table).expect("Failed to parse row");
                 trace!("{counter} Row: {:#?}", row);
                 debug!("{:?}", row.values());
             }
@@ -82,10 +86,34 @@ fn explore_page(file_offset: usize, page: Page) {
         ],
         non_key_fields: vec![
             // name, type, nullable, signed, pk
-            Field::new("username", FieldType::VariableChars(15), false, false, false),
-            Field::new("password", FieldType::VariableChars(255), false, false, false),
-            Field::new("secmobicc", FieldType::VariableChars(3), false, false, false),
-            Field::new("secmobile", FieldType::VariableChars(12), false, false, false),
+            Field::new(
+                "username",
+                FieldType::VariableChars(15),
+                false,
+                false,
+                false,
+            ),
+            Field::new(
+                "password",
+                FieldType::VariableChars(255),
+                false,
+                false,
+                false,
+            ),
+            Field::new(
+                "secmobicc",
+                FieldType::VariableChars(3),
+                false,
+                false,
+                false,
+            ),
+            Field::new(
+                "secmobile",
+                FieldType::VariableChars(12),
+                false,
+                false,
+                false,
+            ),
             Field::new("email", FieldType::VariableChars(255), false, false, false),
             Field::new("myid", FieldType::VariableChars(30), false, false, false),
             Field::new("myidkey", FieldType::VariableChars(16), false, false, false),
