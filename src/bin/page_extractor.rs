@@ -177,7 +177,7 @@ fn main() {
                             .create(true)
                             .open(save_path)
                             .expect("Can't open file to save pages");
-                        debug_assert_eq!(
+                        assert_eq!(
                             f.write(page.raw_data).expect("Failed to write"),
                             page.raw_data.len()
                         );
@@ -196,7 +196,7 @@ fn main() {
                                     .create(true)
                                     .open(save_path)
                                     .expect("Can't open file to save pages");
-                                debug_assert_eq!(
+                                assert_eq!(
                                     f.write(page.raw_data).expect("Failed to write"),
                                     page.raw_data.len()
                                 );
