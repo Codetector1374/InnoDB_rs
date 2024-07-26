@@ -31,7 +31,6 @@ impl<'a> Row<'a> {
             .chain(td.non_key_fields.iter())
             .enumerate()
         {
-            assert!(!(field.nullable && field.primary_key), "PK can't be null");
             if field.nullable {
                 null_field_map.insert(idx, null_field_map.len());
                 todo!("Verify this");

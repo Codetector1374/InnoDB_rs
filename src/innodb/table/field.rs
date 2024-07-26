@@ -1,13 +1,13 @@
 use tracing::trace;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FieldType {
-    TinyInt,   // 1
-    SmallInt,  // 2
-    MediumInt, // 3
-    Int,       // 4
-    Int6,      // 6
-    BigInt,    // 8
+    TinyInt(bool),   // 1
+    SmallInt(bool),  // 2
+    MediumInt(bool), // 3
+    Int(bool),       // 4
+    Int6(bool),      // 6
+    BigInt(bool),    // 8
 
     VariableChars(u16), // CHAR type with non-latin charset also uses this apparently
     Char(u8),
@@ -16,12 +16,12 @@ impl FieldType {
     // Returns how many bytes does the "length" metadata takes up
     pub fn is_variable(&self) -> bool {
         match self {
-            FieldType::TinyInt
-            | FieldType::SmallInt
-            | FieldType::MediumInt
-            | FieldType::Int
-            | FieldType::Int6
-            | FieldType::BigInt => false,
+            FieldType::TinyInt(_)
+            | FieldType::SmallInt(_)
+            | FieldType::MediumInt(_)
+            | FieldType::Int(_)
+            | FieldType::Int6(_)
+            | FieldType::BigInt(_) => false,
             FieldType::Char(_) => false,
             FieldType::VariableChars(_) => true,
         }
@@ -29,12 +29,12 @@ impl FieldType {
 
     pub fn max_len(&self) -> u16 {
         match self {
-            FieldType::TinyInt => 1,
-            FieldType::SmallInt => 2,
-            FieldType::MediumInt => 3,
-            FieldType::Int => 4,
-            FieldType::Int6 => 6,
-            FieldType::BigInt => 8,
+            FieldType::TinyInt(_) => 1,
+            FieldType::SmallInt(_) => 2,
+            FieldType::MediumInt(_) => 3,
+            FieldType::Int(_) => 4,
+            FieldType::Int6(_) => 6,
+            FieldType::BigInt(_) => 8,
             FieldType::VariableChars(len) => *len,
             FieldType::Char(len) => *len as u16,
         }
@@ -53,29 +53,25 @@ pub struct Field {
     pub name: String,
     pub field_type: FieldType,
     pub nullable: bool,
-    pub signed: bool,
-    pub primary_key: bool,
 }
 
 impl Field {
-    pub fn new(name: &str, t: FieldType, nullable: bool, signed: bool, pk: bool) -> Self {
+    pub fn new(name: &str, t: FieldType, nullable: bool) -> Self {
         Field {
             name: name.to_owned(),
             field_type: t,
             nullable,
-            signed,
-            primary_key: pk,
         }
     }
 
-    fn parse_int(&self, buf: &[u8], len: usize) -> FieldValue {
+    fn parse_int(&self, buf: &[u8], len: usize, signed: bool) -> FieldValue {
         assert!(len <= 8, "Currently only support upto u64");
         assert!(buf.len() >= len, "buf not long enough");
         let mut num = 0;
         for byte in buf[0..len].iter().cloned() {
             num = (num << 8) | (byte as u64);
         }
-        if self.signed {
+        if signed {
             if len < std::mem::size_of::<u64>() {
                 let sign = (num & (0x80 << ((len - 1) * 8))) != 0;
                 let mask = u64::MAX & !((1 << (8 * len)) - 1);
@@ -91,12 +87,12 @@ impl Field {
 
     pub fn parse(&self, buf: &[u8], length_opt: Option<u16>) -> (FieldValue, usize) {
         let (val, len) = match self.field_type {
-            FieldType::TinyInt => (self.parse_int(buf, 1), 1),
-            FieldType::SmallInt => (self.parse_int(buf, 2), 2),
-            FieldType::MediumInt => (self.parse_int(buf, 3), 3),
-            FieldType::Int => (self.parse_int(buf, 4), 4),
-            FieldType::Int6 => (self.parse_int(buf, 6), 6),
-            FieldType::BigInt => (self.parse_int(buf, 8), 8),
+            FieldType::TinyInt(signed) => (self.parse_int(buf, 1, signed), 1),
+            FieldType::SmallInt(signed) => (self.parse_int(buf, 2, signed), 2),
+            FieldType::MediumInt(signed) => (self.parse_int(buf, 3, signed), 3),
+            FieldType::Int(signed) => (self.parse_int(buf, 4, signed), 4),
+            FieldType::Int6(signed) => (self.parse_int(buf, 6, signed), 6),
+            FieldType::BigInt(signed) => (self.parse_int(buf, 8, signed), 8),
             FieldType::Char(len) => (
                 FieldValue::String(
                     String::from_utf8(buf[0..len as usize].into())
@@ -140,12 +136,10 @@ mod test {
         let buf = [0xFFu8, 0xFF, 0xFF];
         let field = Field {
             name: Default::default(),
-            field_type: FieldType::MediumInt,
+            field_type: FieldType::MediumInt(true),
             nullable: false,
-            signed: true,
-            primary_key: false,
         };
-        let result = field.parse_int(&buf, 3);
+        let result = field.parse_int(&buf, 3, true);
         match result {
             super::FieldValue::SignedInt(val) => assert_eq!(val, -1),
             _ => unreachable!(),
