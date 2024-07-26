@@ -14,7 +14,8 @@ use innodb::innodb::{
     },
     table::{
         field::{Field, FieldType},
-        Row, TableDefinition,
+        row::Row,
+        TableDefinition,
     },
 };
 use tracing::{debug, info, trace, warn, Level};
