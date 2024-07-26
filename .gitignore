@@ -1,4 +1,10 @@
+# Output
 /target
+
+# Data directories
 /data
 /output
+
+# Editors
 /.idea
+/.vscode

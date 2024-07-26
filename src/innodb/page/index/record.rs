@@ -2,9 +2,9 @@ use std::fmt::Debug;
 
 use anyhow::{anyhow, Error, Result};
 use num_enum::TryFromPrimitive;
-use tracing::{debug, error, trace};
+use tracing::error;
 
-use crate::innodb::{table::{Field, FieldValue, TableDefinition}, InnoDBError};
+use crate::innodb::InnoDBError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, TryFromPrimitive)]
 #[repr(u8)]
@@ -88,7 +88,7 @@ impl<'a> Record<'a> {
     pub fn try_from_offset(buffer: &'a [u8], offset: usize) -> Result<Record> {
         Ok(Record {
             header: RecordHeader::try_from_offset(buffer, offset)?,
-            offset: offset,
+            offset,
             buf: buffer,
         })
     }
@@ -116,7 +116,8 @@ mod test {
     };
 
     use crate::innodb::page::{
-        index::{IndexPage, record::RecordType}, Page, PageType, FIL_PAGE_SIZE,
+        index::{record::RecordType, IndexPage},
+        Page, PageType, FIL_PAGE_SIZE,
     };
 
     #[test]
@@ -142,7 +143,7 @@ mod test {
         assert_eq!(inf_header.next_record_offset, Some(112));
         assert_eq!(inf_header.order, 0);
         assert_eq!(inf_header.num_records_owned, 1);
-        assert_eq!(inf_header.info_flags.min_rec, false);
-        assert_eq!(inf_header.info_flags.deleted, false);
+        assert!(!inf_header.info_flags.min_rec);
+        assert!(!inf_header.info_flags.deleted);
     }
 }

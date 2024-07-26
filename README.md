@@ -1,5 +1,7 @@
 # InnoDB_rs
 
+![](https://github.com/codetector1374/innodb_rs/actions/workflows/rust.yml/badge.svg)
+
 InnoDB_rs is written to faciliate data recovery from accidentally deleted MySQL databases.
 But also serves as an implementation of InnoDB's storage engine in Rust.
 
