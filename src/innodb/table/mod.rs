@@ -1,3 +1,6 @@
+pub mod field;
+pub mod row;
+
 use anyhow::Result;
 use std::{collections::HashMap, i64, sync::Arc};
 use tracing::{trace, warn};
@@ -290,7 +293,7 @@ mod test {
     #[test]
     fn test_field_parse_int() {
         let buf = [0xFFu8, 0xFF, 0xFF];
-        let mut field = Field {
+        let field = Field {
             name: Default::default(),
             field_type: FieldType::MediumInt,
             nullable: false,
