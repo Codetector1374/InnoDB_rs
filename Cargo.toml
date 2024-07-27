@@ -9,7 +9,6 @@ default-run="page_explorer"
 [dependencies]
 anyhow = "1.0.86"
 bitvec = "1.0.1"
-byteorder = "1.5.0"
 circular-buffer = "0.1.7"
 clap = { version = "4.5.9", features = ["derive"] }
 crc = "3.2.1"
