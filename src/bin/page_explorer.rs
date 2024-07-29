@@ -1,23 +1,20 @@
+use anyhow::Result;
 use std::{
     fs::{read_to_string, File},
-    io::{BufReader, Read},
+    io::{BufReader, Read, Write},
     path::PathBuf,
     sync::Arc,
 };
 
-use bitvec::vec::BitVec;
 use clap::Parser;
 use innodb::innodb::{
     page::{
         index::{record::RecordType, IndexPage},
         Page, PageType, FIL_PAGE_SIZE,
     },
-    table::{
-        field::{Field, FieldType},
-        row::Row,
-        TableDefinition,
-    },
+    table::{field::FieldValue, row::Row, TableDefinition},
 };
+use struson::writer::{JsonStreamWriter, JsonWriter};
 use tracing::{debug, info, trace, warn, Level};
 
 #[derive(Parser, Debug)]
@@ -31,11 +28,14 @@ struct Arguments {
     #[arg(long)]
     limit: Option<usize>,
 
-    #[arg(short = 't', long = "table")]
+    #[arg(short = 't', long = "table", help="Path to sql file containing create table statement to use as table definition for parsing")]
     table_def: Option<PathBuf>,
 
+    #[arg(short = 'o', long = "output", help = "JSON file to write output to")]
+    output: Option<PathBuf>,
+
     #[arg(
-        help = "Page(s) file, should contain one or multiple raw 16K page",
+        help = "Page(s) file, should contain one or multiple raw 16K page, ideally sorted",
         value_name = "PAGE FILE"
     )]
     file: PathBuf,
@@ -44,31 +44,71 @@ struct Arguments {
 struct PageExplorer {
     arguments: Arguments,
     table_def: Option<Arc<TableDefinition>>,
+    output_writer: Option<JsonStreamWriter<Box<dyn Write>>>,
+    total_records: usize,
+    missing_records: usize,
 }
 
 impl PageExplorer {
-    pub fn explore_index(&self, index: &IndexPage) {
+    fn write_row(&mut self, row: &Row) -> Result<()> {
+        if let Some(writer) = &mut self.output_writer {
+            writer.begin_object()?;
+            let values = row.values();
+            let td = self.table_def.as_ref().unwrap();
+            for (idx, col) in td
+                .primary_keys
+                .iter()
+                .chain(td.non_key_fields.iter())
+                .enumerate()
+            {
+                writer.name(&col.name)?;
+                match &values[idx] {
+                    FieldValue::SignedInt(v) => writer.number_value(*v)?,
+                    FieldValue::UnsignedInt(v) => writer.number_value(*v)?,
+                    FieldValue::String(s) => writer.string_value(s)?,
+                    FieldValue::Null => writer.null_value()?,
+                };
+            }
+            writer.end_object()?;
+        }
+        Ok(())
+    }
+
+    pub fn explore_index(&mut self, index: &IndexPage) {
         let index_header = &index.index_header;
         trace!("Index Header:\n{:#?}", &index_header);
         let mut record = index.infimum().unwrap();
         let mut counter = 0;
         loop {
-            if record.header.record_type == RecordType::Conventional {
-                counter += 1;
-                if let Some(table) = &self.table_def {
-                    let row = Row::try_from_record_and_table(&record, table)
-                        .expect("Failed to parse row");
-                    trace!("{counter} Row: {:#?}", row);
-                    debug!("{:?}", row.values());
+            match record.header.record_type {
+                RecordType::Infimum => {}
+                RecordType::Supremum => {
+                    break;
                 }
-            } else if record.header.record_type == RecordType::Supremum {
-                break;
-            } else {
-                debug!("Unknown Record: {:?}", record);
+                RecordType::Conventional => {
+                    counter += 1;
+                    if let Some(table) = &self.table_def {
+                        let row = Row::try_from_record_and_table(&record, table)
+                            .expect("Failed to parse row");
+                        debug!("{:?}", row.values());
+                        self.write_row(&row).expect("Failed to write row");
+                    }
+                }
+                _ => {
+                    info!("Unknown Record Type: {:?}", record);
+                }
             }
-
             let new_rec = record.next().unwrap();
             record = new_rec;
+        }
+        self.total_records += counter;
+        let missing = index.index_header.number_of_records as usize - counter;
+        if missing > 0 {
+            self.missing_records += missing;
+            warn!(
+                "Missing {} records on page {}",
+                missing, index.page.header.offset
+            );
         }
         info!(
             "Found {}/{} records on index page {}",
@@ -76,7 +116,7 @@ impl PageExplorer {
         );
     }
 
-    fn explore_page(&self, file_offset: usize, page: Page) {
+    fn explore_page(&mut self, file_offset: usize, page: Page) {
         if page.crc32_checksum() == page.header.new_checksum {
             trace!("Page @ {:#x} byte has valid CRC32c checksum", file_offset);
         } else if page.innodb_checksum() == page.header.new_checksum {
@@ -100,11 +140,19 @@ impl PageExplorer {
         }
     }
 
-    fn run(&self) {
+    fn run(&mut self) {
         let mut reader =
             BufReader::new(File::open(&self.arguments.file).expect("Can't open page file"));
         let mut buffer = Box::<[u8]>::from([0u8; FIL_PAGE_SIZE]);
         let mut counter = 0usize;
+
+        if let Some(output) = &self.arguments.output {
+            let file = File::create(output).expect("Can't open output file for write");
+            let mut writer = JsonStreamWriter::new(Box::new(file) as Box<dyn Write>);
+            writer.begin_array().expect("Can't begin array");
+            self.output_writer.replace(writer);
+        }
+
         loop {
             let cur_offset = counter * FIL_PAGE_SIZE;
             counter += 1;
@@ -126,7 +174,15 @@ impl PageExplorer {
                 }
             }
         }
-        info!("Processed {} pages", counter);
+
+        if let Some(writer) = &mut self.output_writer {
+            writer.end_array().expect("Can't end array");
+        }
+
+        info!(
+            "Processed {} pages, total records: {}, potentially missing: {}",
+            counter, self.total_records, self.missing_records
+        );
     }
 }
 
@@ -152,9 +208,12 @@ fn main() {
         Arc::new(tbl)
     });
 
-    let explorer = PageExplorer {
+    let mut explorer = PageExplorer {
         arguments: args,
         table_def: table_def,
+        output_writer: None,
+        total_records: 0,
+        missing_records: 0,
     };
 
     explorer.run();

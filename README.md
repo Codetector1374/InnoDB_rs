@@ -32,3 +32,12 @@ and store them in `output/BY_TABLESPACE`. Each file representing a table space.
 (`.ibd`) file.
 
 See `--help` for more information
+
+## InnoDB Index Explorer (page_explorer)
+
+Page Explorer is used to explore "index pages". InnoDB stores data in it's 
+primary key / index. When provided with a table definition, it can be used to 
+dump full table from the primary index.
+
+## Sorting tablespace file
+Table space can be sorted using a tool like [innodb_sort](https://github.com/YukiHinana/innodb_sort)
