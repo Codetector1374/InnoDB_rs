@@ -49,35 +49,38 @@ struct PageExplorer {
 impl PageExplorer {
     pub fn explore_index(&self, index: &IndexPage) {
         let index_header = &index.index_header;
-        debug!("Index Header:\n{:#?}", &index_header);
+        trace!("Index Header:\n{:#?}", &index_header);
         let mut record = index.infimum().unwrap();
-        let mut counter = 1;
+        let mut counter = 0;
         loop {
             if record.header.record_type == RecordType::Conventional {
+                counter += 1;
                 if let Some(table) = &self.table_def {
                     let row = Row::try_from_record_and_table(&record, table)
                         .expect("Failed to parse row");
                     trace!("{counter} Row: {:#?}", row);
                     debug!("{:?}", row.values());
                 }
-            } else {
-                debug!("{} Record: {:?}", counter, record);
-            }
-            if record.header.record_type == RecordType::Supremum {
+            } else if record.header.record_type == RecordType::Supremum {
                 break;
+            } else {
+                debug!("Unknown Record: {:?}", record);
             }
 
             let new_rec = record.next().unwrap();
             record = new_rec;
-            counter += 1;
         }
+        info!(
+            "Found {}/{} records on index page {}",
+            counter, index.index_header.number_of_records, index.page.header.offset
+        );
     }
 
     fn explore_page(&self, file_offset: usize, page: Page) {
         if page.crc32_checksum() == page.header.new_checksum {
-            debug!("Page @ {:#x} byte has valid CRC32c checksum", file_offset);
+            trace!("Page @ {:#x} byte has valid CRC32c checksum", file_offset);
         } else if page.innodb_checksum() == page.header.new_checksum {
-            debug!("Page @ {:#x} byte has valid InnoDB checksum", file_offset);
+            trace!("Page @ {:#x} byte has valid InnoDB checksum", file_offset);
         } else {
             warn!(
                 "Page @ {:#x} has invalid checksum: {:#08x} vs crc32: {:#08x} InnoDB: {:#08x}",
