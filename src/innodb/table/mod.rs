@@ -71,32 +71,32 @@ impl TableDefinition {
                     })
                     .last()
                     .unwrap_or(table_charset);
-                let f_type: FieldType = match column.data_type {
+                let f_type: FieldType = match &column.data_type {
                     DataType::Char(len_opt) => {
                         let final_len = match len_opt {
                             Some(l) => match l {
-                                CharacterLength::IntegerLength { length, unit: _ } => length,
+                                CharacterLength::IntegerLength { length, unit: _ } => *length,
                                 CharacterLength::Max => u8::MAX as u64,
                             },
                             None => u8::MAX as u64,
                         };
                         assert!(final_len <= u8::MAX as u64);
                         if charset.max_len() == 1 {
-                            FieldType::Char(final_len as u8)
+                            FieldType::Char(final_len as usize, charset)
                         } else {
-                            FieldType::VariableChars(final_len as u16)
+                            FieldType::Text(final_len as usize, charset)
                         }
                     }
                     DataType::Varchar(len_opt) => {
                         let final_len = match len_opt {
                             Some(l) => match l {
-                                CharacterLength::IntegerLength { length, unit: _ } => length,
+                                CharacterLength::IntegerLength { length, unit: _ } => *length,
                                 CharacterLength::Max => u16::MAX as u64,
                             },
                             None => u16::MAX as u64,
                         };
                         assert!(final_len <= u16::MAX as u64);
-                        FieldType::VariableChars(final_len as u16)
+                        FieldType::Text(final_len as usize, charset)
                     }
                     DataType::UnsignedTinyInt(_) => FieldType::TinyInt(false),
                     DataType::UnsignedSmallInt(_) => FieldType::SmallInt(false),
@@ -108,6 +108,13 @@ impl TableDefinition {
                     DataType::MediumInt(_) => FieldType::MediumInt(true),
                     DataType::Int(_) => FieldType::Int(true),
                     DataType::BigInt(_) => FieldType::BigInt(true),
+                    DataType::Custom(name, _) => {
+                        match name.0[0].value.as_str() {
+                            "mediumtext" => FieldType::Text((1<<24) - 1, charset),
+                            "longtext" => FieldType::Text((1<<32) - 1, charset),
+                            _ => unimplemented!("Custom: {} unhandled", name.0[0].value),
+                        }
+                    }
                     _ => unimplemented!("mapping of {:?}", column.data_type),
                 };
 
@@ -129,6 +136,8 @@ impl TableDefinition {
                     table_def.non_key_fields.push(field);
                 }
             }
+
+            assert!(table_def.primary_keys.len() > 0, "Table must have primary key");
 
             Ok(table_def)
         } else {
@@ -167,7 +176,7 @@ impl TableDefinition {
 mod test {
     use std::{fs::read_to_string, path::PathBuf};
 
-    use crate::innodb::table::field::FieldType;
+    use crate::innodb::{charset::InnoDBCharset, table::field::FieldType};
 
     use super::{field::Field, TableDefinition};
 
@@ -211,19 +220,19 @@ mod test {
             ],
             non_key_fields: vec![
                 // name, type, nullable, signed, pk
-                Field::new("username", FieldType::VariableChars(15), false),
-                Field::new("password", FieldType::VariableChars(255), false),
-                Field::new("secmobicc", FieldType::VariableChars(3), false),
-                Field::new("secmobile", FieldType::VariableChars(12), false),
-                Field::new("email", FieldType::VariableChars(255), false),
-                Field::new("myid", FieldType::VariableChars(30), false),
-                Field::new("myidkey", FieldType::VariableChars(16), false),
-                Field::new("regip", FieldType::VariableChars(45), false),
+                Field::new("username", FieldType::Text(15, InnoDBCharset::Utf8mb4), false),
+                Field::new("password", FieldType::Text(255, InnoDBCharset::Utf8mb4), false),
+                Field::new("secmobicc", FieldType::Text(3, InnoDBCharset::Utf8mb4), false),
+                Field::new("secmobile", FieldType::Text(12, InnoDBCharset::Utf8mb4), false),
+                Field::new("email", FieldType::Text(255, InnoDBCharset::Utf8mb4), false),
+                Field::new("myid", FieldType::Text(30, InnoDBCharset::Utf8mb4), false),
+                Field::new("myidkey", FieldType::Text(16, InnoDBCharset::Utf8mb4), false),
+                Field::new("regip", FieldType::Text(45, InnoDBCharset::Utf8mb4), false),
                 Field::new("regdate", FieldType::Int(false), false),
                 Field::new("lastloginip", FieldType::Int(true), false),
                 Field::new("lastlogintime", FieldType::Int(false), false),
-                Field::new("salt", FieldType::VariableChars(20), false),
-                Field::new("secques", FieldType::VariableChars(8), false),
+                Field::new("salt", FieldType::Text(20, InnoDBCharset::Utf8mb4), false),
+                Field::new("secques", FieldType::Text(8, InnoDBCharset::Utf8mb4), false),
             ],
         };
 

@@ -1,4 +1,7 @@
+use std::u64;
+
 use tracing::trace;
+use crate::innodb::charset::InnoDBCharset;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FieldType {
@@ -9,8 +12,8 @@ pub enum FieldType {
     Int6(bool),      // 6
     BigInt(bool),    // 8
 
-    VariableChars(u16), // CHAR type with non-latin charset also uses this apparently
-    Char(u8),
+    Text(usize, InnoDBCharset), // CHAR type with non-latin charset also uses this apparently
+    Char(usize, InnoDBCharset),
 }
 impl FieldType {
     // Returns how many bytes does the "length" metadata takes up
@@ -22,12 +25,12 @@ impl FieldType {
             | FieldType::Int(_)
             | FieldType::Int6(_)
             | FieldType::BigInt(_) => false,
-            FieldType::Char(_) => false,
-            FieldType::VariableChars(_) => true,
+            FieldType::Char(_, _) => false,
+            FieldType::Text(_, _) => true,
         }
     }
 
-    pub fn max_len(&self) -> u16 {
+    pub fn max_len(&self) -> u64 {
         match self {
             FieldType::TinyInt(_) => 1,
             FieldType::SmallInt(_) => 2,
@@ -35,8 +38,8 @@ impl FieldType {
             FieldType::Int(_) => 4,
             FieldType::Int6(_) => 6,
             FieldType::BigInt(_) => 8,
-            FieldType::VariableChars(len) => *len,
-            FieldType::Char(len) => *len as u16,
+            FieldType::Text(len, charset) => (*len as u64) * charset.max_len(),
+            FieldType::Char(len, charset) => (*len as u64) * charset.max_len(),
         }
     }
 }
@@ -46,6 +49,7 @@ pub enum FieldValue {
     SignedInt(i64),
     UnsignedInt(u64),
     String(String),
+    Null,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,25 +71,18 @@ impl Field {
     fn parse_int(&self, buf: &[u8], len: usize, signed: bool) -> FieldValue {
         assert!(len <= 8, "Currently only support upto u64");
         assert!(buf.len() >= len, "buf not long enough");
-        let mut num = 0;
+        let mut num = 0i64;
         for byte in buf[0..len].iter().cloned() {
-            num = (num << 8) | (byte as u64);
+            num = (num << 8) | (byte as i8 as i64);
         }
         if signed {
-            if len < std::mem::size_of::<u64>() {
-                let sign = (num & (0x80 << ((len - 1) * 8))) != 0;
-                let mask = u64::MAX & !((1 << (8 * len)) - 1);
-                if sign {
-                    num |= mask;
-                }
-            }
-            FieldValue::SignedInt(num as i64)
+            FieldValue::SignedInt(num ^ ((u64::MAX as i64) << (len * 8 - 1)))
         } else {
-            FieldValue::UnsignedInt(num)
+            FieldValue::UnsignedInt((num as u64) & !(u64::MAX << (len * 8)))
         }
     }
 
-    pub fn parse(&self, buf: &[u8], length_opt: Option<u16>) -> (FieldValue, usize) {
+    pub fn parse(&self, buf: &[u8], length_opt: Option<u64>) -> (FieldValue, usize) {
         let (val, len) = match self.field_type {
             FieldType::TinyInt(signed) => (self.parse_int(buf, 1, signed), 1),
             FieldType::SmallInt(signed) => (self.parse_int(buf, 2, signed), 2),
@@ -93,7 +90,7 @@ impl Field {
             FieldType::Int(signed) => (self.parse_int(buf, 4, signed), 4),
             FieldType::Int6(signed) => (self.parse_int(buf, 6, signed), 6),
             FieldType::BigInt(signed) => (self.parse_int(buf, 8, signed), 8),
-            FieldType::Char(len) => (
+            FieldType::Char(len, _) => (
                 FieldValue::String(
                     String::from_utf8(buf[0..len as usize].into())
                         .unwrap()
@@ -102,19 +99,23 @@ impl Field {
                 ),
                 len as usize,
             ),
-            FieldType::VariableChars(max_len) => {
-                let length = length_opt.expect("Must have length");
-                assert!(
-                    length <= max_len * 4, // TODO: fix this, *4 is hard code for UTF8-MB4
-                    "Length larger than expected max? {} > {} in field {:?}",
-                    length,
-                    max_len,
-                    self
-                );
-                let str = String::from_utf8_lossy(&buf[..length as usize])
-                    .trim_end()
-                    .to_string();
-                (FieldValue::String(str), length as usize)
+            FieldType::Text(max_len, _) => {
+                match length_opt {
+                    None => (FieldValue::Null, 0),
+                    Some(length) => {
+                        assert!(
+                            length <= self.field_type.max_len(), // TODO: fix this, *4 is hard code for UTF8-MB4
+                            "Length larger than expected max? {} > {} in field {:?}",
+                            length,
+                            max_len,
+                            self
+                        );
+                        let str = String::from_utf8_lossy(&buf[..length as usize])
+                            .trim_end()
+                            .to_string();
+                        (FieldValue::String(str), length as usize)
+                    }
+                }
             }
             #[allow(unreachable_patterns)]
             _ => {
@@ -133,7 +134,7 @@ mod test {
 
     #[test]
     fn test_field_parse_int() {
-        let buf = [0xFFu8, 0xFF, 0xFF];
+        let buf = [0x80, 0x00, 0x00];
         let field = Field {
             name: Default::default(),
             field_type: FieldType::MediumInt(true),
@@ -141,7 +142,7 @@ mod test {
         };
         let result = field.parse_int(&buf, 3, true);
         match result {
-            super::FieldValue::SignedInt(val) => assert_eq!(val, -1),
+            super::FieldValue::SignedInt(val) => assert_eq!(val, 0),
             _ => unreachable!(),
         }
     }

@@ -1,20 +1,26 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use crate::innodb::page::index::record::{Record, RECORD_HEADER_FIXED_LENGTH};
 
 use super::{field::FieldValue, TableDefinition};
 
 use anyhow::Result;
+use tracing::{debug, info};
 
-#[derive(Debug)]
 pub struct Row<'a> {
     td: Arc<TableDefinition>,
     // Field Index, Null or Not
     null_map: HashMap<usize, bool>,
 
     // Field Index, length
-    field_len_map: HashMap<usize, u16>,
+    field_len_map: HashMap<usize, u64>,
     record: Record<'a>,
+}
+
+impl <'a> Debug for Row<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Row").field("null_map", &self.null_map).field("field_len_map", &self.field_len_map).field("record", &self.record).finish()
+    }
 }
 
 impl<'a> Row<'a> {
@@ -33,7 +39,6 @@ impl<'a> Row<'a> {
         {
             if field.nullable {
                 null_field_map.insert(idx, null_field_map.len());
-                todo!("Verify this");
             }
         }
 
@@ -58,7 +63,7 @@ impl<'a> Row<'a> {
             .map(|(k, v)| (*k, null_bits[*v]))
             .collect();
 
-        let mut length_map: HashMap<usize, u16> = HashMap::new();
+        let mut length_map: HashMap<usize, u64> = HashMap::new();
         for (idx, field) in td
             .primary_keys
             .iter()
@@ -70,7 +75,7 @@ impl<'a> Row<'a> {
                 if field.nullable && null_map[&idx] {
                     continue;
                 }
-                let mut len: u16 = *byte_stream.next().unwrap() as u16;
+                let mut len: u64 = *byte_stream.next().unwrap() as u64;
 
                 /* If the maximum length of the field
                 is up to 255 bytes, the actual length
@@ -83,9 +88,9 @@ impl<'a> Row<'a> {
                 externally. */
                 if field.field_type.max_len() > 255 {
                     // 2 bytes
-                    if len & 0x80 != 0 {
+                    if (len & 0x80) != 0 {
                         let byte2 = *byte_stream.next().unwrap();
-                        let tmp = (len << 8) | byte2 as u16;
+                        let tmp = (len << 8) | byte2 as u64;
                         if tmp & 0x4000 != 0 {
                             unimplemented!("[Unimplemented] Extern!!!");
                         }

@@ -93,7 +93,7 @@ impl InnoDBCharset {
         }
     }
 
-    pub fn max_len(&self) -> u8 {
+    pub fn max_len(&self) -> u64 {
         match self {
             InnoDBCharset::Armscii8 => 1,
             InnoDBCharset::Ascii => 1,
