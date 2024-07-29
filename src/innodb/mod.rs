@@ -1,6 +1,6 @@
+pub mod charset;
 pub mod page;
 pub mod table;
-pub mod charset;
 
 use std::{
     error::Error,

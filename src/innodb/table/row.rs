@@ -5,7 +5,6 @@ use crate::innodb::page::index::record::{Record, RECORD_HEADER_FIXED_LENGTH};
 use super::{field::FieldValue, TableDefinition};
 
 use anyhow::Result;
-use tracing::{debug, info};
 
 pub struct Row<'a> {
     td: Arc<TableDefinition>,
@@ -17,9 +16,13 @@ pub struct Row<'a> {
     record: Record<'a>,
 }
 
-impl <'a> Debug for Row<'a> {
+impl<'a> Debug for Row<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Row").field("null_map", &self.null_map).field("field_len_map", &self.field_len_map).field("record", &self.record).finish()
+        f.debug_struct("Row")
+            .field("null_map", &self.null_map)
+            .field("field_len_map", &self.field_len_map)
+            .field("record", &self.record)
+            .finish()
     }
 }
 

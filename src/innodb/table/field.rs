@@ -1,7 +1,7 @@
 use std::u64;
 
-use tracing::trace;
 use crate::innodb::charset::InnoDBCharset;
+use tracing::trace;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FieldType {

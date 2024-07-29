@@ -25,7 +25,6 @@ impl Page {
 fn main() -> std::io::Result<()> {
     let args = Arguments::parse();
 
-
     let file = File::options().read(true).write(true).open(args.file)?;
 
     let mmap = unsafe { MmapMut::map_mut(&file)? };

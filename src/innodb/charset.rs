@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Error, Result};
+use anyhow::{Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InnoDBCharset {
@@ -138,5 +138,4 @@ impl InnoDBCharset {
             InnoDBCharset::Utf8mb4 => 4,
         }
     }
-    
 }

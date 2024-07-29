@@ -28,7 +28,11 @@ struct Arguments {
     #[arg(long)]
     limit: Option<usize>,
 
-    #[arg(short = 't', long = "table", help="Path to sql file containing create table statement to use as table definition for parsing")]
+    #[arg(
+        short = 't',
+        long = "table",
+        help = "Path to sql file containing create table statement to use as table definition for parsing"
+    )]
     table_def: Option<PathBuf>,
 
     #[arg(short = 'o', long = "output", help = "JSON file to write output to")]

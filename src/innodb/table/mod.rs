@@ -1,10 +1,9 @@
 pub mod field;
 pub mod row;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use anyhow::{anyhow, Result};
-use bitvec::ptr::null;
 use field::{Field, FieldType};
 use sqlparser::{
     ast::{CharacterLength, ColumnOption, DataType, Statement, TableConstraint},
@@ -108,13 +107,11 @@ impl TableDefinition {
                     DataType::MediumInt(_) => FieldType::MediumInt(true),
                     DataType::Int(_) => FieldType::Int(true),
                     DataType::BigInt(_) => FieldType::BigInt(true),
-                    DataType::Custom(name, _) => {
-                        match name.0[0].value.as_str() {
-                            "mediumtext" => FieldType::Text((1<<24) - 1, charset),
-                            "longtext" => FieldType::Text((1<<32) - 1, charset),
-                            _ => unimplemented!("Custom: {} unhandled", name.0[0].value),
-                        }
-                    }
+                    DataType::Custom(name, _) => match name.0[0].value.as_str() {
+                        "mediumtext" => FieldType::Text((1 << 24) - 1, charset),
+                        "longtext" => FieldType::Text((1 << 32) - 1, charset),
+                        _ => unimplemented!("Custom: {} unhandled", name.0[0].value),
+                    },
                     _ => unimplemented!("mapping of {:?}", column.data_type),
                 };
 
@@ -137,7 +134,10 @@ impl TableDefinition {
                 }
             }
 
-            assert!(table_def.primary_keys.len() > 0, "Table must have primary key");
+            assert!(
+                table_def.primary_keys.len() > 0,
+                "Table must have primary key"
+            );
 
             Ok(table_def)
         } else {
@@ -220,13 +220,33 @@ mod test {
             ],
             non_key_fields: vec![
                 // name, type, nullable, signed, pk
-                Field::new("username", FieldType::Text(15, InnoDBCharset::Utf8mb4), false),
-                Field::new("password", FieldType::Text(255, InnoDBCharset::Utf8mb4), false),
-                Field::new("secmobicc", FieldType::Text(3, InnoDBCharset::Utf8mb4), false),
-                Field::new("secmobile", FieldType::Text(12, InnoDBCharset::Utf8mb4), false),
+                Field::new(
+                    "username",
+                    FieldType::Text(15, InnoDBCharset::Utf8mb4),
+                    false,
+                ),
+                Field::new(
+                    "password",
+                    FieldType::Text(255, InnoDBCharset::Utf8mb4),
+                    false,
+                ),
+                Field::new(
+                    "secmobicc",
+                    FieldType::Text(3, InnoDBCharset::Utf8mb4),
+                    false,
+                ),
+                Field::new(
+                    "secmobile",
+                    FieldType::Text(12, InnoDBCharset::Utf8mb4),
+                    false,
+                ),
                 Field::new("email", FieldType::Text(255, InnoDBCharset::Utf8mb4), false),
                 Field::new("myid", FieldType::Text(30, InnoDBCharset::Utf8mb4), false),
-                Field::new("myidkey", FieldType::Text(16, InnoDBCharset::Utf8mb4), false),
+                Field::new(
+                    "myidkey",
+                    FieldType::Text(16, InnoDBCharset::Utf8mb4),
+                    false,
+                ),
                 Field::new("regip", FieldType::Text(45, InnoDBCharset::Utf8mb4), false),
                 Field::new("regdate", FieldType::Int(false), false),
                 Field::new("lastloginip", FieldType::Int(true), false),
