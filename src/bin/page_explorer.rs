@@ -179,8 +179,9 @@ impl PageExplorer {
             }
         }
 
-        if let Some(writer) = &mut self.output_writer {
+        if let Some(mut writer) = self.output_writer.take() {
             writer.end_array().expect("Can't end array");
+            writer.finish_document().expect("Can't finish document");
         }
 
         info!(
