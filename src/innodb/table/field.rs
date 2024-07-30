@@ -93,7 +93,7 @@ impl Field {
             FieldType::Char(len, _) => (
                 FieldValue::String(
                     String::from_utf8(buf[0..len as usize].into())
-                        .unwrap()
+                        .expect("Failed parsing UTF-8")
                         .trim_end()
                         .to_string(),
                 ),
@@ -110,7 +110,8 @@ impl Field {
                             max_len,
                             self
                         );
-                        let str = String::from_utf8_lossy(&buf[..length as usize])
+                        let str = String::from_utf8(buf[..length as usize].into())
+                            .expect("Failed parsing UTF-8")
                             .trim_end()
                             .to_string();
                         (FieldValue::String(str), length as usize)
