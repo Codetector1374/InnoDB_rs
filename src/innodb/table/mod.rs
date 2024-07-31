@@ -1,8 +1,6 @@
 pub mod field;
 pub mod row;
 
-use std::collections::HashSet;
-
 use anyhow::{anyhow, Result};
 use field::{Field, FieldType};
 use sqlparser::{
@@ -10,15 +8,15 @@ use sqlparser::{
     dialect::MySqlDialect,
     parser::Parser,
 };
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::innodb::charset::InnoDBCharset;
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct TableDefinition {
     pub name: String,
-    pub primary_keys: Vec<Field>,
-    pub non_key_fields: Vec<Field>,
+    pub cluster_columns: Vec<Field>,
+    pub data_columns: Vec<Field>,
 }
 
 impl TableDefinition {
@@ -36,27 +34,8 @@ impl TableDefinition {
             assert_eq!(parsed_table.name.0.len(), 1, "Table name is only 1 part");
             table_def.name = parsed_table.name.0.first().unwrap().value.clone();
 
-            // Parse Indexes
-            let mut pk_list: HashSet<String> = HashSet::new();
-            for constraint in parsed_table.constraints.iter() {
-                match constraint {
-                    TableConstraint::PrimaryKey {
-                        name: _,
-                        index_name: _,
-                        index_type: _,
-                        columns,
-                        index_options: _,
-                        characteristics: _,
-                    } => {
-                        pk_list.extend(columns.iter().map(|c| c.value.clone()));
-                    }
-                    _ => {
-                        debug!("Ignoring constraint {:?}", constraint);
-                    }
-                }
-            }
-
             // Actual Columns
+            let mut parsed_fields: Vec<Field> = Vec::new();
             for column in parsed_table.columns.iter() {
                 let charset = column
                     .options
@@ -126,17 +105,86 @@ impl TableDefinition {
                     nullable: nullable,
                 };
 
-                if pk_list.remove(&field.name) {
-                    // TODO: Unsure the ordering here. Maybe it should be in `PRIMARY KEY(`column1`, `column2`)` order?
-                    table_def.primary_keys.push(field);
+                parsed_fields.push(field);
+            }
+
+            // Parse Indexes
+            let mut cluster_index_columns: Vec<String> = Vec::new();
+            let mut unique_keys: Vec<Vec<String>> = Vec::new();
+            for constraint in parsed_table.constraints.iter() {
+                match constraint {
+                    TableConstraint::PrimaryKey {
+                        name: _,
+                        index_name: _,
+                        index_type: _,
+                        columns,
+                        index_options: _,
+                        characteristics: _,
+                    } => {
+                        assert!(
+                            cluster_index_columns.is_empty(),
+                            "Multiple Primary Key is not allowed"
+                        );
+                        cluster_index_columns.extend(columns.iter().map(|c| c.value.clone()));
+                    }
+                    TableConstraint::Unique {
+                        name: _,
+                        index_name: _,
+                        index_type_display: _,
+                        index_type: _,
+                        columns,
+                        index_options: _,
+                        characteristics: _,
+                    } => {
+                        unique_keys.push(columns.iter().map(|c| c.value.clone()).collect());
+                    }
+                    _ => {
+                        debug!("Ignoring constraint {:?}", constraint);
+                    }
+                }
+            }
+
+            // If there is no use specified primary key, check for a unique
+            // with all `NOT NULL` columns
+            if cluster_index_columns.is_empty() {
+                info!("No PRIMARY KEY specified, finding suitable column");
+                for unique in unique_keys.iter() {
+                    let is_all_not_null = unique.iter().all(|field_name| {
+                        parsed_fields
+                            .iter()
+                            .find(|f| f.name == *field_name)
+                            .map(|f| !f.nullable)
+                            .unwrap_or(false)
+                    });
+
+                    if is_all_not_null {
+                        info!("Using Unique({:?}) as Clustering Index", unique);
+                        cluster_index_columns = unique.clone();
+                        break;
+                    }
+                }
+            }
+
+            if cluster_index_columns.is_empty() {
+                info!("No PRIMARY KEY or suitable UNIQUE, making a pseudo column for clustering index");
+                table_def.cluster_columns.push(Field {
+                    name: "ROWID".into(),
+                    field_type: FieldType::Int6(false),
+                    nullable: false,
+                });
+            }
+
+            for field in parsed_fields.into_iter() {
+                if cluster_index_columns.contains(&field.name) {
+                    table_def.cluster_columns.push(field);
                 } else {
-                    table_def.non_key_fields.push(field);
+                    table_def.data_columns.push(field);
                 }
             }
 
             assert!(
-                table_def.primary_keys.len() > 0,
-                "Table must have primary key"
+                table_def.cluster_columns.len() > 0,
+                "Table must have at least 1 cluster column"
             );
 
             Ok(table_def)
@@ -146,28 +194,28 @@ impl TableDefinition {
     }
 
     pub fn names(&self) -> Vec<&str> {
-        self.primary_keys
+        self.cluster_columns
             .iter()
-            .chain(self.non_key_fields.iter())
+            .chain(self.data_columns.iter())
             .map(|f| f.name.as_str())
             .collect()
     }
 
     pub fn field_count(&self) -> usize {
-        self.primary_keys.len() + self.non_key_fields.len()
+        self.cluster_columns.len() + self.data_columns.len()
     }
 
     pub fn get_field(&self, name: &str) -> Option<&Field> {
-        self.primary_keys
+        self.cluster_columns
             .iter()
-            .chain(self.non_key_fields.iter())
+            .chain(self.data_columns.iter())
             .find(|f| f.name == name)
     }
 
     pub fn get_field_mut(&mut self, name: &str) -> Option<&mut Field> {
-        self.primary_keys
+        self.cluster_columns
             .iter_mut()
-            .chain(self.non_key_fields.iter_mut())
+            .chain(self.data_columns.iter_mut())
             .find(|f| f.name == name)
     }
 }
@@ -195,8 +243,8 @@ mod test {
 
         assert_eq!(def.name, "sample", "table name is wrong");
 
-        assert_eq!(def.primary_keys.len(), 1);
-        assert_eq!(def.non_key_fields.len(), 2);
+        assert_eq!(def.cluster_columns.len(), 1);
+        assert_eq!(def.data_columns.len(), 2);
 
         let field1 = def.get_field("field1").unwrap();
         assert_eq!(field1.name, "field1");
@@ -214,11 +262,11 @@ mod test {
         .unwrap();
         let reference = TableDefinition {
             name: String::from("pre_ucenter_members"),
-            primary_keys: vec![
+            cluster_columns: vec![
                 // name, type, nullable, signed, pk
                 Field::new("uid", FieldType::MediumInt(false), false),
             ],
-            non_key_fields: vec![
+            data_columns: vec![
                 // name, type, nullable, signed, pk
                 Field::new(
                     "username",

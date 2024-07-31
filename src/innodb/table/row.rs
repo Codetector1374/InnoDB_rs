@@ -35,9 +35,9 @@ impl<'a> Row<'a> {
         // Map of null bits: <Field Idx, null_bit>
         let mut null_field_map: HashMap<usize, usize> = HashMap::new();
         for (idx, field) in td
-            .primary_keys
+            .cluster_columns
             .iter()
-            .chain(td.non_key_fields.iter())
+            .chain(td.data_columns.iter())
             .enumerate()
         {
             if field.nullable {
@@ -68,9 +68,9 @@ impl<'a> Row<'a> {
 
         let mut length_map: HashMap<usize, u64> = HashMap::new();
         for (idx, field) in td
-            .primary_keys
+            .cluster_columns
             .iter()
-            .chain(td.non_key_fields.iter())
+            .chain(td.data_columns.iter())
             .enumerate()
         {
             if field.field_type.is_variable() {
@@ -116,10 +116,10 @@ impl<'a> Row<'a> {
     pub fn values(&self) -> Vec<FieldValue> {
         let mut values = Vec::new();
         let mut current_offset = self.record.offset;
-        let num_pk = self.td.primary_keys.len();
+        let num_pk = self.td.cluster_columns.len();
         assert_ne!(num_pk, 0, "Table must have PK");
 
-        for (idx, f) in self.td.primary_keys.iter().enumerate() {
+        for (idx, f) in self.td.cluster_columns.iter().enumerate() {
             let (value, len) = f.parse(
                 &self.record.buf[current_offset..],
                 self.field_len_map.get(&idx).cloned(),
@@ -130,7 +130,7 @@ impl<'a> Row<'a> {
         // Hidden Columns
         current_offset += 6 + 7;
 
-        for (idx, f) in self.td.non_key_fields.iter().enumerate() {
+        for (idx, f) in self.td.data_columns.iter().enumerate() {
             let idx = idx + num_pk;
 
             let (value, len) = f.parse(

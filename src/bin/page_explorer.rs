@@ -60,9 +60,9 @@ impl PageExplorer {
             let values = row.values();
             let td = self.table_def.as_ref().unwrap();
             for (idx, col) in td
-                .primary_keys
+                .cluster_columns
                 .iter()
-                .chain(td.non_key_fields.iter())
+                .chain(td.data_columns.iter())
                 .enumerate()
             {
                 writer.name(&col.name)?;
@@ -82,7 +82,8 @@ impl PageExplorer {
         let index_header = &index.index_header;
         trace!("Index Header:\n{:#?}", &index_header);
         let mut record = index.infimum().unwrap();
-        let mut counter = 0;
+        let mut data_counter = 0;
+        let mut other_record_counter = 0;
         loop {
             match record.header.record_type {
                 RecordType::Infimum => {}
@@ -90,7 +91,7 @@ impl PageExplorer {
                     break;
                 }
                 RecordType::Conventional => {
-                    counter += 1;
+                    data_counter += 1;
                     if let Some(table) = &self.table_def {
                         let row = Row::try_from_record_and_table(&record, table)
                             .expect("Failed to parse row");
@@ -98,6 +99,10 @@ impl PageExplorer {
                         self.write_row(&row).expect("Failed to write row");
                     }
                 }
+                RecordType::NodePointer => {
+                    other_record_counter += 1;
+                }
+                #[allow(unreachable_patterns)]
                 _ => {
                     info!("Unknown Record Type: {:?}", record);
                 }
@@ -105,8 +110,8 @@ impl PageExplorer {
             let new_rec = record.next().unwrap();
             record = new_rec;
         }
-        self.total_records += counter;
-        let missing = index.index_header.number_of_records as usize - counter;
+        self.total_records += data_counter;
+        let missing = index.index_header.number_of_records as usize - data_counter - other_record_counter;
         if missing > 0 {
             self.missing_records += missing;
             warn!(
@@ -115,8 +120,8 @@ impl PageExplorer {
             );
         }
         info!(
-            "Found {}/{} records on index page {}",
-            counter, index.index_header.number_of_records, index.page.header.offset
+            "Found ({} data + {} node pointer)/{} records on index page {}",
+            data_counter, other_record_counter, index.index_header.number_of_records, index.page.header.offset
         );
     }
 
