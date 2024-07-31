@@ -9,7 +9,7 @@ use std::{
 use clap::Parser;
 use innodb::innodb::{
     page::{
-        index::{record::RecordType, IndexPage},
+        index::{record::RecordType, IndexFormat, IndexPage},
         Page, PageType, FIL_PAGE_SIZE,
     },
     table::{field::FieldValue, row::Row, TableDefinition},
@@ -138,9 +138,12 @@ impl PageExplorer {
 
         trace!("{:x?}", page);
 
-        if page.header.page_type == PageType::Index {
-            let index_page = IndexPage::try_from_page(page).expect("Failed to construct index");
-            self.explore_index(&index_page);
+        match page.header.page_type {
+            PageType::Index => {
+                let index_page = IndexPage::try_from_page(page).expect("Failed to construct index");
+                self.explore_index(&index_page);
+            },
+            _ => warn!("Unknown page type: {:?}", page.header.page_type),
         }
     }
 

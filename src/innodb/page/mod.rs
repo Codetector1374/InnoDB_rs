@@ -4,7 +4,8 @@ use std::fmt::Debug;
 
 use anyhow::{Error, Result};
 use crc::{Crc, CRC_32_ISCSI};
-use num_enum::FromPrimitive;
+use num_enum::{FromPrimitive, TryFromPrimitive};
+use tracing::debug;
 
 // #define UT_HASH_RANDOM_MASK     1463735687
 // #define UT_HASH_RANDOM_MASK2    1653893711
@@ -88,7 +89,7 @@ impl<'a> Page<'a> {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, FromPrimitive)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u16)]
 pub enum PageType {
     /// Freshly allocated
@@ -155,10 +156,6 @@ pub enum PageType {
     RTree = 17854,
     /// B+Tree index
     Index = 17855,
-
-    #[num_enum(default)]
-    /// Unknown type
-    Undefined = 0xFFFF,
 }
 
 #[allow(clippy::derivable_impls)]
@@ -195,7 +192,13 @@ impl FILHeader {
             buffer[23],
         ]);
         let page_type_value = u16::from_be_bytes([buffer[24], buffer[25]]);
-        let page_type = PageType::from_primitive(page_type_value);
+        let page_type = match PageType::try_from_primitive(page_type_value) {
+            Ok(page_type) => page_type,
+            Err(e) => {
+                debug!("Invalid FIL PageType: {:?}", e);      
+                PageType::Unknown
+            }
+        };
         let flush_lsn = u64::from_be_bytes([
             buffer[26], buffer[27], buffer[28], buffer[29], buffer[30], buffer[31], buffer[32],
             buffer[33],

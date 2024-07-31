@@ -49,22 +49,33 @@ enum PageValidationResult<'a> {
     Valid(Page<'a>),
     InvalidChecksum,
     NotAPage,
+    EmptyPage,
 }
 
 fn validate_page(page: &[u8]) -> PageValidationResult {
     let page = Page::from_bytes(page).expect("Can't construct page?");
-    if page.header.page_type == PageType::Undefined {
-        return PageValidationResult::NotAPage;
-    }
-    if page.crc32_checksum() == page.header.new_checksum
-        || page.innodb_checksum() == page.header.new_checksum
-    {
-        return PageValidationResult::Valid(page);
-    } else if (page.header.lsn as u32) == page.trailer.lsn_low_32 {
-        return PageValidationResult::InvalidChecksum;
-    }
+    match page.header.page_type {
+        PageType::Unknown => {
+            return PageValidationResult::NotAPage;
+        }
+        PageType::Allocated => {
+            if page.header.new_checksum == 0 {
+                return PageValidationResult::EmptyPage;
+            }
+        }
+        _ => {
+            if page.crc32_checksum() == page.header.new_checksum
+                || page.innodb_checksum() == page.header.new_checksum
+            {
+                return PageValidationResult::Valid(page);
+            } else if (page.header.lsn as u32) == page.trailer.lsn_low_32 {
+                return PageValidationResult::InvalidChecksum;
+            }
+        }
+    };
 
-    PageValidationResult::NotAPage
+    trace!("Bad page: {:#?}", page);
+    return PageValidationResult::NotAPage;
 }
 
 fn main() {
@@ -213,7 +224,8 @@ fn main() {
             PageValidationResult::InvalidChecksum => {
                 failed_checksum += 1;
             }
-            PageValidationResult::NotAPage => {}
+            PageValidationResult::NotAPage |
+            PageValidationResult::EmptyPage => {}
         }
 
         head_pointer += step_size;
