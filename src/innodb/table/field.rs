@@ -71,12 +71,23 @@ impl Field {
     fn parse_int(&self, buf: &[u8], len: usize, signed: bool) -> FieldValue {
         assert!(len <= 8, "Currently only support upto u64");
         assert!(buf.len() >= len, "buf not long enough");
-        let mut num = 0i64;
+        let mut num = 0u64;
         for byte in buf[0..len].iter().cloned() {
-            num = (num << 8) | (byte as i8 as i64);
+            num = (num << 8) | (byte as u64);
         }
         if signed {
-            FieldValue::SignedInt(num ^ ((u64::MAX as i64) << (len * 8 - 1)))
+            let numeric_value = num & ((1u64 << (len * 8 - 1)) - 1);
+            let is_positive = (num & (1u64 << (len * 8 - 1))) != 0;
+            trace!(
+                "Signed Int: numeric: {:#x}, is_pos: {}",
+                numeric_value,
+                is_positive
+            );
+            FieldValue::SignedInt(if is_positive {
+                numeric_value as i64
+            } else {
+                -(numeric_value as i64)
+            })
         } else {
             FieldValue::UnsignedInt((num as u64) & !(u64::MAX << (len * 8)))
         }
