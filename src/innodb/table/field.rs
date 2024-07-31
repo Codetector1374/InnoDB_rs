@@ -78,11 +78,6 @@ impl Field {
         if signed {
             let numeric_value = num & ((1u64 << (len * 8 - 1)) - 1);
             let is_positive = (num & (1u64 << (len * 8 - 1))) != 0;
-            trace!(
-                "Signed Int: numeric: {:#x}, is_pos: {}",
-                numeric_value,
-                is_positive
-            );
             FieldValue::SignedInt(if is_positive {
                 numeric_value as i64
             } else {
