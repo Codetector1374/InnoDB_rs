@@ -9,7 +9,7 @@ use std::{
 use clap::Parser;
 use innodb::innodb::{
     page::{
-        index::{record::RecordType, IndexFormat, IndexPage},
+        index::{record::RecordType, IndexPage},
         Page, PageType, FIL_PAGE_SIZE,
     },
     table::{field::FieldValue, row::Row, TableDefinition},
@@ -27,6 +27,12 @@ struct Arguments {
 
     #[arg(long)]
     limit: Option<usize>,
+
+    #[arg(long = "index-id")]
+    index_id: Option<u64>,
+
+    #[arg(long = "page-id")]
+    page_id: Option<u32>,
 
     #[arg(
         short = 't',
@@ -71,6 +77,7 @@ impl PageExplorer {
                     FieldValue::UnsignedInt(v) => writer.number_value(*v)?,
                     FieldValue::String(s) => writer.string_value(s)?,
                     FieldValue::Null => writer.null_value()?,
+                    _ => panic!("Unsupported Field Value for writing JSON"),
                 };
             }
             writer.end_object()?;
@@ -80,6 +87,7 @@ impl PageExplorer {
 
     pub fn explore_index(&mut self, index: &IndexPage) {
         let index_header = &index.index_header;
+        debug!("Inspecting Index Page {}", index.page.header.offset);
         trace!("Index Header:\n{:#?}", &index_header);
         let mut record = index.infimum().unwrap();
         let mut data_counter = 0;
@@ -111,7 +119,8 @@ impl PageExplorer {
             record = new_rec;
         }
         self.total_records += data_counter;
-        let missing = index.index_header.number_of_records as usize - data_counter - other_record_counter;
+        let missing =
+            index.index_header.number_of_records as usize - data_counter - other_record_counter;
         if missing > 0 {
             self.missing_records += missing;
             warn!(
@@ -121,7 +130,10 @@ impl PageExplorer {
         }
         info!(
             "Found ({} data + {} node pointer)/{} records on index page {}",
-            data_counter, other_record_counter, index.index_header.number_of_records, index.page.header.offset
+            data_counter,
+            other_record_counter,
+            index.index_header.number_of_records,
+            index.page.header.offset
         );
     }
 
@@ -146,8 +158,13 @@ impl PageExplorer {
         match page.header.page_type {
             PageType::Index => {
                 let index_page = IndexPage::try_from_page(page).expect("Failed to construct index");
+                if let Some(filtered_index_id) = self.arguments.index_id {
+                    if index_page.index_header.index_id != filtered_index_id {
+                        return;
+                    }
+                }
                 self.explore_index(&index_page);
-            },
+            }
             _ => warn!("Unknown page type: {:?}", page.header.page_type),
         }
     }
@@ -167,13 +184,18 @@ impl PageExplorer {
 
         loop {
             let cur_offset = counter * FIL_PAGE_SIZE;
-            counter += 1;
             match reader.read(&mut buffer) {
                 Ok(num_bytes) => {
                     if num_bytes < buffer.len() {
                         break;
                     }
                     let page = Page::from_bytes(&buffer).unwrap();
+                    if let Some(page_id) = self.arguments.page_id {
+                        if page.header.offset != page_id {
+                            continue;
+                        }
+                    }
+                    counter += 1;
                     self.explore_page(cur_offset, page);
                 }
                 Err(e) => panic!("Read error: {:?}", e),

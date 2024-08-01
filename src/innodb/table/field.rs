@@ -50,6 +50,7 @@ pub enum FieldValue {
     UnsignedInt(u64),
     String(String),
     Null,
+    Skipped,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,7 +85,7 @@ impl Field {
                 -(numeric_value as i64)
             })
         } else {
-            FieldValue::UnsignedInt((num as u64) & !(u64::MAX << (len * 8)))
+            FieldValue::UnsignedInt(num & !(u64::MAX << (len * 8)))
         }
     }
 
@@ -110,7 +111,7 @@ impl Field {
                     None => (FieldValue::Null, 0),
                     Some(length) => {
                         assert!(
-                            length <= self.field_type.max_len(), // TODO: fix this, *4 is hard code for UTF8-MB4
+                            length <= self.field_type.max_len(),
                             "Length larger than expected max? {} > {} in field {:?}",
                             length,
                             max_len,

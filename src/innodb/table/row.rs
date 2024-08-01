@@ -1,15 +1,21 @@
-use std::{collections::HashMap, fmt::Debug, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+    sync::Arc,
+};
 
-use crate::innodb::page::index::record::{Record, RECORD_HEADER_FIXED_LENGTH};
+use crate::innodb::{page::index::record::{Record, RECORD_HEADER_FIXED_LENGTH}, table::blob_header::BlobHeader};
 
-use super::{field::FieldValue, TableDefinition};
+use super::{field::{Field, FieldValue}, TableDefinition};
 
 use anyhow::Result;
+use tracing::{debug, warn};
 
 pub struct Row<'a> {
     td: Arc<TableDefinition>,
     // Field Index, Null or Not
     null_map: HashMap<usize, bool>,
+    extern_fields: HashSet<usize>,
 
     // Field Index, length
     field_len_map: HashMap<usize, u64>,
@@ -31,6 +37,8 @@ impl<'a> Row<'a> {
         let mut byte_stream = r.buf[..(r.offset - RECORD_HEADER_FIXED_LENGTH)]
             .iter()
             .rev();
+
+        let mut extern_fields: HashSet<usize> = HashSet::new();
 
         // Map of null bits: <Field Idx, null_bit>
         let mut null_field_map: HashMap<usize, usize> = HashMap::new();
@@ -94,10 +102,10 @@ impl<'a> Row<'a> {
                     if (len & 0x80) != 0 {
                         let byte2 = *byte_stream.next().unwrap();
                         let tmp = (len << 8) | byte2 as u64;
-                        if tmp & 0x4000 != 0 {
-                            unimplemented!("[Unimplemented] Extern!!!");
-                        }
                         len = tmp & 0x3FFF;
+                        if tmp & 0x4000 != 0 {
+                            extern_fields.insert(idx);
+                        }
                     }
                 }
                 length_map.insert(idx, len);
@@ -109,7 +117,25 @@ impl<'a> Row<'a> {
             null_map,
             field_len_map: length_map,
             record: r.clone(),
+            extern_fields,
         })
+    }
+
+    fn parse_single_field(&self, f: &Field, buf: &[u8], idx: usize) -> (FieldValue, usize) {
+        if self.extern_fields.contains(&idx) {
+            let len = *self.field_len_map.get(&idx).unwrap() as usize;
+            assert_eq!(len, 20, "Extern header should be 20 bytes long");
+            let extern_header = BlobHeader::from_bytes(&buf[0..len]).expect("Can't make blob header");
+            debug!("Extern Header: {:?}", &extern_header);
+            // Load a page
+            (FieldValue::Skipped, len as usize)
+        } else {
+            let (value, len) = f.parse(
+                buf,
+                self.field_len_map.get(&idx).cloned(),
+            );
+            (value, len)
+        }
     }
 
     /// Only call on primary index
@@ -120,25 +146,18 @@ impl<'a> Row<'a> {
         assert_ne!(num_pk, 0, "Table must have PK");
 
         for (idx, f) in self.td.cluster_columns.iter().enumerate() {
-            let (value, len) = f.parse(
-                &self.record.buf[current_offset..],
-                self.field_len_map.get(&idx).cloned(),
-            );
-            current_offset += len;
+            let (value, consumed) = self.parse_single_field(f, &self.record.buf[current_offset..], idx);
+            current_offset += consumed;
             values.push(value);
         }
         // Hidden Columns
         current_offset += 6 + 7;
 
+        let cluster_count = self.td.cluster_columns.len();
         for (idx, f) in self.td.data_columns.iter().enumerate() {
-            let idx = idx + num_pk;
-
-            let (value, len) = f.parse(
-                &self.record.buf[current_offset..],
-                self.field_len_map.get(&idx).cloned(),
-            );
-
-            current_offset += len;
+            let idx = idx + cluster_count;
+            let (value, consumed) = self.parse_single_field(f, &self.record.buf[current_offset..], idx);
+            current_offset += consumed;
             values.push(value);
         }
 
