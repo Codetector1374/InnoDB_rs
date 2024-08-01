@@ -1,8 +1,8 @@
 use super::BufferManager;
 
-pub struct HeapBufferManager {}
+pub struct LRUBufferManager {}
 
-impl BufferManager for HeapBufferManager {
+impl BufferManager for LRUBufferManager {
     fn open_page<'a>(&'a mut self, space_id: u64, offset: u64) -> crate::innodb::page::Page<'a> {
         todo!()
     }
