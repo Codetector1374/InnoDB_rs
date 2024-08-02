@@ -8,7 +8,7 @@ use std::{
 
 use clap::Parser;
 use innodb::innodb::{
-    buffer_manager::{simple::SimpleBufferManager, BufferManager},
+    buffer_manager::{simple::SimpleBufferManager, BufferManager, DummyBufferMangaer},
     page::{
         index::{record::RecordType, IndexPage},
         Page, PageType, FIL_PAGE_SIZE,
@@ -59,7 +59,7 @@ struct PageExplorer {
     arguments: Arguments,
     table_def: Option<Arc<TableDefinition>>,
     output_writer: Option<JsonStreamWriter<Box<dyn Write>>>,
-    buffer_mgr: Option<Box<dyn BufferManager>>,
+    buffer_mgr: Box<dyn BufferManager>,
     total_records: usize,
     missing_records: usize,
 }
@@ -108,11 +108,8 @@ impl PageExplorer {
                     if let Some(table) = &self.table_def {
                         let row = Row::try_from_record_and_table(&record, table)
                             .expect("Failed to parse row");
-                        let values = if let Some(manager) = self.buffer_mgr.as_deref_mut() {
-                            row.parse_values(Some(manager))
-                        } else {
-                            row.parse_values(None)
-                        };
+                        let values = row.parse_values(self.buffer_mgr.as_mut());
+                        assert_eq!(values.len(), table.field_count());
                         debug!("{:?}", values);
                         self.write_row(&row, &values).expect("Failed to write row");
                     }
@@ -257,14 +254,14 @@ fn main() {
     let mut explorer = PageExplorer {
         arguments: args.clone(),
         table_def: table_def,
-        buffer_mgr: None,
+        buffer_mgr: Box::new(DummyBufferMangaer),
         output_writer: None,
         total_records: 0,
         missing_records: 0,
     };
 
     if let Some(tablespace) = &args.tablespce_dir {
-        explorer.buffer_mgr = Some(Box::new(SimpleBufferManager::new(tablespace)));
+        explorer.buffer_mgr = Box::new(SimpleBufferManager::new(tablespace));
     }
 
     explorer.run();

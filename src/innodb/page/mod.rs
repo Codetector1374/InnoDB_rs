@@ -5,7 +5,7 @@ use std::fmt::Debug;
 
 use anyhow::{Error, Result};
 use crc::{Crc, CRC_32_ISCSI};
-use num_enum::{FromPrimitive, TryFromPrimitive};
+use num_enum::TryFromPrimitive;
 use tracing::debug;
 
 // #define UT_HASH_RANDOM_MASK     1463735687

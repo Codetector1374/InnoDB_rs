@@ -1,14 +1,15 @@
 use super::BufferManager;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+use crate::innodb::page::Page;
 
 pub struct LRUBufferManager {}
 
 impl BufferManager for LRUBufferManager {
-    fn open_page<'a>(&'a mut self, space_id: u32, offset: u32) -> Result<crate::innodb::page::Page<'a>> {
+    fn open_page<'a>(&'a mut self, space_id: u32, offset: u32) -> Result<Page<'a>> {
         todo!()
     }
 
-    fn close_page(&mut self, page: &crate::innodb::page::Page) {
+    fn close_page(&mut self, page: &Page) {
         todo!()
     }
 }
