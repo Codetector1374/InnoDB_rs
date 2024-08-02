@@ -4,12 +4,19 @@ use std::{
     sync::Arc,
 };
 
-use crate::innodb::{page::index::record::{Record, RECORD_HEADER_FIXED_LENGTH}, table::blob_header::BlobHeader};
+use crate::innodb::{
+    buffer_manager::BufferManager,
+    page::index::record::{Record, RECORD_HEADER_FIXED_LENGTH},
+    table::blob_header::BlobHeader,
+};
 
-use super::{field::{Field, FieldValue}, TableDefinition};
+use super::{
+    field::{Field, FieldValue},
+    TableDefinition,
+};
 
 use anyhow::Result;
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
 
 pub struct Row<'a> {
     td: Arc<TableDefinition>,
@@ -121,32 +128,66 @@ impl<'a> Row<'a> {
         })
     }
 
-    fn parse_single_field(&self, f: &Field, buf: &[u8], idx: usize) -> (FieldValue, usize) {
+    fn parse_extern_field(
+        &self,
+        f: &Field,
+        extern_header: &BlobHeader,
+        buf_mgr: Option<&mut dyn BufferManager>,
+    ) -> FieldValue {
+        if let Some(buffer_mgr) = buf_mgr {
+            // Load a page
+            if let Ok(page) =
+                buffer_mgr.open_page(extern_header.space_id, extern_header.page_number)
+            {
+                assert_eq!(page.header.space_id, extern_header.space_id);
+                trace!("Extern Page: {:#?}", page);
+                let region = &page.body()[extern_header.offset as usize..];
+                assert!(extern_header.length as usize <= region.len());
+                trace!("{}", pretty_hex::pretty_hex(&region));
+                return f.parse(region, Some(extern_header.length)).0;
+            } else {
+                warn!(
+                    "Failed to open extern page with space: {}, page#: {}",
+                    extern_header.space_id, extern_header.page_number
+                );
+            }
+        }
+        FieldValue::Skipped
+    }
+
+    fn parse_single_field(
+        &self,
+        f: &Field,
+        buf: &[u8],
+        idx: usize,
+        buf_mgr: Option<&mut dyn BufferManager>,
+    ) -> (FieldValue, usize) {
         if self.extern_fields.contains(&idx) {
             let len = *self.field_len_map.get(&idx).unwrap() as usize;
             assert_eq!(len, 20, "Extern header should be 20 bytes long");
-            let extern_header = BlobHeader::from_bytes(&buf[0..len]).expect("Can't make blob header");
-            debug!("Extern Header: {:?}", &extern_header);
-            // Load a page
-            (FieldValue::Skipped, len as usize)
+            let extern_header =
+                BlobHeader::from_bytes(&buf[0..len]).expect("Can't make blob header");
+            trace!("Extern Header: {:?}", &extern_header);
+            (self.parse_extern_field(f, &extern_header, buf_mgr), len as usize)
         } else {
-            let (value, len) = f.parse(
-                buf,
-                self.field_len_map.get(&idx).cloned(),
-            );
+            let (value, len) = f.parse(buf, self.field_len_map.get(&idx).cloned());
             (value, len)
         }
     }
 
     /// Only call on primary index
-    pub fn values(&self) -> Vec<FieldValue> {
+    pub fn parse_values(&self, mut buffer_mgr: Option<&mut dyn BufferManager>) -> Vec<FieldValue> {
         let mut values = Vec::new();
         let mut current_offset = self.record.offset;
         let num_pk = self.td.cluster_columns.len();
         assert_ne!(num_pk, 0, "Table must have PK");
 
         for (idx, f) in self.td.cluster_columns.iter().enumerate() {
-            let (value, consumed) = self.parse_single_field(f, &self.record.buf[current_offset..], idx);
+            let (value, consumed) = if let Some(buf_mgr) = &mut buffer_mgr {
+                self.parse_single_field(f, &self.record.buf[current_offset..], idx, Some(*buf_mgr))
+            } else {
+                self.parse_single_field(f, &self.record.buf[current_offset..], idx, None)
+            };
             current_offset += consumed;
             values.push(value);
         }
@@ -156,7 +197,11 @@ impl<'a> Row<'a> {
         let cluster_count = self.td.cluster_columns.len();
         for (idx, f) in self.td.data_columns.iter().enumerate() {
             let idx = idx + cluster_count;
-            let (value, consumed) = self.parse_single_field(f, &self.record.buf[current_offset..], idx);
+            let (value, consumed) = if let Some(buf_mgr) = &mut buffer_mgr {
+                self.parse_single_field(f, &self.record.buf[current_offset..], idx, Some(*buf_mgr))
+            } else {
+                self.parse_single_field(f, &self.record.buf[current_offset..], idx, None)
+            };
             current_offset += consumed;
             values.push(value);
         }

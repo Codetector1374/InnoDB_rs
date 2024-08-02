@@ -8,6 +8,7 @@ use std::{
 
 use clap::Parser;
 use innodb::innodb::{
+    buffer_manager::{simple::SimpleBufferManager, BufferManager},
     page::{
         index::{record::RecordType, IndexPage},
         Page, PageType, FIL_PAGE_SIZE,
@@ -17,7 +18,7 @@ use innodb::innodb::{
 use struson::writer::{JsonStreamWriter, JsonWriter};
 use tracing::{debug, info, trace, warn, Level};
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 struct Arguments {
     #[arg(short='v', action = clap::ArgAction::Count)]
     verbose: u8,
@@ -27,6 +28,9 @@ struct Arguments {
 
     #[arg(long)]
     limit: Option<usize>,
+
+    #[arg(long = "tablespace-dir")]
+    tablespce_dir: Option<PathBuf>,
 
     #[arg(long = "index-id")]
     index_id: Option<u64>,
@@ -55,15 +59,16 @@ struct PageExplorer {
     arguments: Arguments,
     table_def: Option<Arc<TableDefinition>>,
     output_writer: Option<JsonStreamWriter<Box<dyn Write>>>,
+    buffer_mgr: Option<Box<dyn BufferManager>>,
     total_records: usize,
     missing_records: usize,
 }
 
 impl PageExplorer {
-    fn write_row(&mut self, row: &Row) -> Result<()> {
+    fn write_row(&mut self, row: &Row, values: &[FieldValue]) -> Result<()> {
         if let Some(writer) = &mut self.output_writer {
             writer.begin_object()?;
-            let values = row.values();
+
             let td = self.table_def.as_ref().unwrap();
             for (idx, col) in td
                 .cluster_columns
@@ -103,8 +108,13 @@ impl PageExplorer {
                     if let Some(table) = &self.table_def {
                         let row = Row::try_from_record_and_table(&record, table)
                             .expect("Failed to parse row");
-                        debug!("{:?}", row.values());
-                        self.write_row(&row).expect("Failed to write row");
+                        let values = if let Some(manager) = self.buffer_mgr.as_deref_mut() {
+                            row.parse_values(Some(manager))
+                        } else {
+                            row.parse_values(None)
+                        };
+                        debug!("{:?}", values);
+                        self.write_row(&row, &values).expect("Failed to write row");
                     }
                 }
                 RecordType::NodePointer => {
@@ -156,6 +166,7 @@ impl PageExplorer {
         trace!("{:x?}", page);
 
         match page.header.page_type {
+            PageType::Allocated => {}
             PageType::Index => {
                 let index_page = IndexPage::try_from_page(page).expect("Failed to construct index");
                 if let Some(filtered_index_id) = self.arguments.index_id {
@@ -244,12 +255,17 @@ fn main() {
     });
 
     let mut explorer = PageExplorer {
-        arguments: args,
+        arguments: args.clone(),
         table_def: table_def,
+        buffer_mgr: None,
         output_writer: None,
         total_records: 0,
         missing_records: 0,
     };
+
+    if let Some(tablespace) = &args.tablespce_dir {
+        explorer.buffer_mgr = Some(Box::new(SimpleBufferManager::new(tablespace)));
+    }
 
     explorer.run();
 }
