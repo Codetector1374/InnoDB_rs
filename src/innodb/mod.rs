@@ -15,6 +15,7 @@ use page::PageType;
 pub enum InnoDBError {
     InvalidLength,
     InvalidChecksum,
+    InvalidPage,
     InvalidPageType { expected: PageType, has: PageType },
 }
 

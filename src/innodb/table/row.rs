@@ -6,8 +6,12 @@ use std::{
 
 use crate::innodb::{
     buffer_manager::BufferManager,
-    page::index::record::{Record, RECORD_HEADER_FIXED_LENGTH},
+    page::{
+        index::record::{Record, RECORD_HEADER_FIXED_LENGTH},
+        lob::LobFirst,
+    },
     table::blob_header::BlobHeader,
+    InnoDBError,
 };
 
 use super::{
@@ -15,7 +19,7 @@ use super::{
     TableDefinition,
 };
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use tracing::{debug, trace, warn};
 
 pub struct Row<'a> {
@@ -128,6 +132,30 @@ impl<'a> Row<'a> {
         })
     }
 
+    fn load_extern(
+        &self,
+        extern_header: &BlobHeader,
+        buffer_mgr: &mut dyn BufferManager,
+    ) -> Result<Box<[u8]>> {
+        let lob_first_page =
+            buffer_mgr.open_page(extern_header.space_id, extern_header.page_number)?;
+        if lob_first_page.header.offset != extern_header.page_number {
+            buffer_mgr.close_page(lob_first_page);
+            return Err(anyhow!(InnoDBError::InvalidPage));
+        }
+        let lob_first = LobFirst::try_from_page(lob_first_page)?;
+        trace!("LOB First: {:#?}", lob_first);
+        // Current page
+        if lob_first.header.index_list_head.first_node_page_number == lob_first.page.header.offset {
+            return Ok(Box::from(
+                &lob_first.data()
+                    [lob_first.header.index_list_head.first_node_offset as usize..]
+                    [..extern_header.length as usize],
+            ));
+        }
+        unimplemented!();
+    }
+
     fn parse_extern_field(
         &self,
         f: &Field,
@@ -135,17 +163,19 @@ impl<'a> Row<'a> {
         buffer_mgr: &mut dyn BufferManager,
     ) -> FieldValue {
         // Load a page
-        if let Ok(page) = buffer_mgr.open_page(extern_header.space_id, extern_header.page_number) {
-            assert_eq!(page.header.space_id, extern_header.space_id);
-            trace!("Extern Page: {:#?}", page);
-            // return f.parse(region, Some(extern_header.length)).0;
-        } else {
-            warn!(
-                "Failed to open extern page with space: {}, page#: {}",
-                extern_header.space_id, extern_header.page_number
-            );
+        match self.load_extern(extern_header, buffer_mgr) {
+            Ok(buf) => {
+                trace!("Returned buffer: {}", pretty_hex::pretty_hex(&buf));
+                f.parse(&buf, Some(extern_header.length)).0
+            },
+            Err(err) => {
+                warn!(
+                    "Failed to open extern {:?}, error: {:?}",
+                    extern_header, err
+                );
+                FieldValue::Skipped
+            }
         }
-        FieldValue::Skipped
     }
 
     fn parse_single_field(

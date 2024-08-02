@@ -100,7 +100,7 @@ impl IndexHeader {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct IndexPage<'a> {
     pub page: Page<'a>,
     pub index_header: IndexHeader,

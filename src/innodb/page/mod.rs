@@ -42,7 +42,7 @@ fn fold_bytes(buf: &[u8]) -> u32 {
     fold
 }
 
-#[derive(Default, Clone, PartialEq)]
+#[derive(Default, PartialEq)]
 pub struct Page<'a> {
     pub space_id: Option<u64>,
     pub header: FILHeader,

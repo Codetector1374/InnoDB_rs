@@ -44,7 +44,7 @@ struct Arguments {
     file: PathBuf,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 enum PageValidationResult<'a> {
     Valid(Page<'a>),
     InvalidChecksum,
