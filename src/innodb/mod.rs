@@ -2,6 +2,7 @@ pub mod charset;
 pub mod buffer_manager;
 pub mod page;
 pub mod table;
+pub mod file_list;
 
 use std::{
     error::Error,

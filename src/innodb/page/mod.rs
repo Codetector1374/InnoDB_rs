@@ -1,4 +1,5 @@
 pub mod index;
+pub mod lob;
 
 use std::fmt::Debug;
 
