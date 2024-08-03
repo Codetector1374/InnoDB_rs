@@ -1,12 +1,19 @@
 use std::{
-    collections::{HashMap, HashSet}, fmt::Debug, ops::Deref, sync::Arc
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+    ops::Deref,
+    sync::Arc,
 };
 
 use crate::innodb::{
-    buffer_manager::BufferManager, file_list::FileListInnerNode, page::{
+    buffer_manager::BufferManager,
+    file_list::FileListInnerNode,
+    page::{
         index::record::{Record, RECORD_HEADER_FIXED_LENGTH},
         lob::{LobFirst, LobIndexEntry},
-    }, table::blob_header::ExternReference, InnoDBError
+    },
+    table::blob_header::ExternReference,
+    InnoDBError,
 };
 
 use super::{
@@ -15,7 +22,7 @@ use super::{
 };
 
 use anyhow::{anyhow, Result};
-use tracing::{debug, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 pub struct Row<'a> {
     td: Arc<TableDefinition>,
@@ -133,8 +140,7 @@ impl<'a> Row<'a> {
         buffer_mgr: &mut dyn BufferManager,
     ) -> Result<Box<[u8]>> {
         let first_page_number = extern_header.page_number;
-        let lob_first_page =
-            buffer_mgr.open_page(extern_header.space_id, first_page_number)?;
+        let lob_first_page = buffer_mgr.open_page(extern_header.space_id, first_page_number)?;
         if lob_first_page.header.offset != extern_header.page_number {
             return Err(anyhow!(InnoDBError::InvalidPage));
         }
@@ -151,22 +157,36 @@ impl<'a> Row<'a> {
 
         while !node_location.is_null() {
             trace!("Inspecting Node at offset {}", node_location.offset);
-            assert_eq!(index_list.first_node.page_number, lob_first.page.header.offset, "assumption");
+            assert_eq!(
+                index_list.first_node.page_number, lob_first.page.header.offset,
+                "assumption"
+            );
             let buf = &lob_first.page.raw_data[node_location.offset as usize..];
             let node = LobIndexEntry::try_from_bytes(buf)?;
             trace!("Index Node: {:#?}", node);
 
-            if node_location.page_number == first_page_number {
+            if node.page_number == first_page_number {
                 let bytes_read = lob_first.read(page_offset, &mut output_buffer[filled..]);
                 filled += bytes_read;
                 page_offset = page_offset.saturating_sub(bytes_read);
-                trace!("Read {} bytes from first page, expecting {} bytes", bytes_read, output_buffer.len());
+                trace!(
+                    "Read {} bytes from first page, in total expecting {} bytes",
+                    bytes_read,
+                    output_buffer.len()
+                );
             }
 
             node_location = node.file_list_node.next;
         }
 
-        assert_eq!(filled, output_buffer.len(), "Read incomplete");
+        info!("huh {}, {}", filled, output_buffer.len());
+        assert_eq!(
+            filled,
+            output_buffer.len(),
+            "Read incomplete, expect {} have {}",
+            output_buffer.len(),
+            filled
+        );
 
         Ok(output_buffer.into())
     }
@@ -179,9 +199,7 @@ impl<'a> Row<'a> {
     ) -> FieldValue {
         // Load a page
         match self.load_extern(extern_header, buffer_mgr) {
-            Ok(buf) => {
-                f.parse(&buf, Some(extern_header.length)).0
-            },
+            Ok(buf) => f.parse(&buf, Some(extern_header.length)).0,
             Err(err) => {
                 warn!(
                     "Failed to open extern {:?}, error: {:?}",

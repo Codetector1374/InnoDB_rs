@@ -108,7 +108,6 @@ impl<'a> LobFirst<'a> {
         let data = &self.body()[index_array_size..][..data_len];
         assert!(offset < data.len(), "offset too large");
         let data = &data[offset..];
-        assert!(buf.len() <= data.len(), "Not implemented multi page extern expecting: {} have {}", buf.len(), data.len());
         let bytes_to_copy = std::cmp::min(buf.len(), data.len());
         buf[..bytes_to_copy].copy_from_slice(&data[..bytes_to_copy]);
         bytes_to_copy
