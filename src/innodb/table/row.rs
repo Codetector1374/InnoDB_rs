@@ -174,6 +174,8 @@ impl<'a> Row<'a> {
                     bytes_read,
                     output_buffer.len()
                 );
+            } else {
+                // TODO: implemtn LobData
             }
 
             node_location = node.file_list_node.next;
