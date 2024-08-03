@@ -1,4 +1,5 @@
 use anyhow::Result;
+use tracing::trace;
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -10,7 +11,7 @@ use std::{
 
 use crate::innodb::page::{Page, FIL_PAGE_SIZE};
 
-use super::BufferManager;
+use super::{BufferManager, PageGuard};
 
 pub struct SimpleBufferManager {
     page_directory: PathBuf,
@@ -52,12 +53,13 @@ impl SimpleBufferManager {
 }
 
 impl BufferManager for SimpleBufferManager {
-    fn open_page(&self, space_id: u32, offset: u32) -> Result<Page> {
+    fn open_page(&self, space_id: u32, offset: u32) -> Result<PageGuard> {
         let buf = self.get_page(space_id, offset)?;
-        Page::from_bytes(buf)
+        trace!("Opened ({}, {})", space_id, offset);
+        Ok(PageGuard::new(Page::from_bytes(buf)?, self))
     }
 
     fn close_page(&self, page: Page) {
-        // Nothing
+        trace!("Closed ({:?}, {})", page.space_id, page.header.offset);
     }
 }

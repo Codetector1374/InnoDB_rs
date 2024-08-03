@@ -7,16 +7,25 @@ pub mod lru;
 pub mod simple;
 
 pub trait BufferManager {
-    fn open_page(&self, space_id: u32, offset: u32) -> Result<Page>;
+    fn open_page(&self, space_id: u32, offset: u32) -> Result<PageGuard>;
     fn close_page(&self, page: Page);
 }
 
-pub struct PageGuard<'a, B: BufferManager> {
+pub struct PageGuard<'a> {
     page: Page<'a>,
-    buffer_manager: &'a B
+    buffer_manager: &'a dyn BufferManager
 }
 
-impl <'a, B: BufferManager> Deref for PageGuard<'a, B> {
+impl <'a> PageGuard<'a> {
+    pub fn new(page: Page<'a>, buffer_manager: &'a dyn BufferManager) -> Self {
+        PageGuard {
+            page,
+            buffer_manager,
+        }
+    }
+}
+
+impl <'a> Deref for PageGuard<'a> {
     type Target = Page<'a>;
 
     fn deref(&self) -> &Self::Target {
@@ -24,7 +33,7 @@ impl <'a, B: BufferManager> Deref for PageGuard<'a, B> {
     }
 }
 
-impl <'a, B: BufferManager> Drop for PageGuard<'a, B> {
+impl <'a> Drop for PageGuard<'a> {
     fn drop(&mut self) {
         self.buffer_manager.close_page(std::mem::take(&mut self.page));
     }
@@ -33,7 +42,7 @@ impl <'a, B: BufferManager> Drop for PageGuard<'a, B> {
 pub struct DummyBufferMangaer;
 
 impl BufferManager for DummyBufferMangaer {
-    fn open_page(&self, _space_id: u32, _offset: u32) -> Result<Page> {
+    fn open_page(&self, _space_id: u32, _offset: u32) -> Result<PageGuard> {
         Err(anyhow!("Dummy buffer manager can't open"))
     }
 

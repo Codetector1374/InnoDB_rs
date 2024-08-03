@@ -1,17 +1,12 @@
 use std::{
-    collections::{HashMap, HashSet},
-    fmt::Debug,
-    sync::Arc,
+    collections::{HashMap, HashSet}, fmt::Debug, ops::Deref, sync::Arc
 };
 
 use crate::innodb::{
-    buffer_manager::BufferManager,
-    page::{
+    buffer_manager::BufferManager, file_list::FileListInnerNode, page::{
         index::record::{Record, RECORD_HEADER_FIXED_LENGTH},
-        lob::LobFirst,
-    },
-    table::blob_header::BlobHeader,
-    InnoDBError,
+        lob::{LobFirst, LobIndexEntry},
+    }, table::blob_header::ExternReference, InnoDBError
 };
 
 use super::{
@@ -134,38 +129,57 @@ impl<'a> Row<'a> {
 
     fn load_extern(
         &self,
-        extern_header: &BlobHeader,
+        extern_header: &ExternReference,
         buffer_mgr: &mut dyn BufferManager,
     ) -> Result<Box<[u8]>> {
+        let first_page_number = extern_header.page_number;
         let lob_first_page =
-            buffer_mgr.open_page(extern_header.space_id, extern_header.page_number)?;
+            buffer_mgr.open_page(extern_header.space_id, first_page_number)?;
         if lob_first_page.header.offset != extern_header.page_number {
-            buffer_mgr.close_page(lob_first_page);
             return Err(anyhow!(InnoDBError::InvalidPage));
         }
-        let lob_first = LobFirst::try_from_page(lob_first_page)?;
+        let lob_first = LobFirst::try_from_page(lob_first_page.deref())?;
+        let index_list = &lob_first.header.index_list_head;
         trace!("LOB First: {:#?}", lob_first);
-        // Current page
-        if lob_first.header.index_list_head.first_node_page_number == lob_first.page.header.offset {
-            return Ok(Box::from(
-                &lob_first.data()
-                    [lob_first.header.index_list_head.first_node_offset as usize..]
-                    [..extern_header.length as usize],
-            ));
+
+        let mut node_location = index_list.first_node;
+        let mut page_offset = 0;
+
+        let mut output_buffer = Vec::<u8>::new();
+        let mut filled = 0usize;
+        output_buffer.resize(extern_header.length as usize, 0);
+
+        while !node_location.is_null() {
+            trace!("Inspecting Node at offset {}", node_location.offset);
+            assert_eq!(index_list.first_node.page_number, lob_first.page.header.offset, "assumption");
+            let buf = &lob_first.page.raw_data[node_location.offset as usize..];
+            let node = LobIndexEntry::try_from_bytes(buf)?;
+            trace!("Index Node: {:#?}", node);
+
+            if node_location.page_number == first_page_number {
+                let bytes_read = lob_first.read(page_offset, &mut output_buffer[filled..]);
+                filled += bytes_read;
+                page_offset = page_offset.saturating_sub(bytes_read);
+                trace!("Read {} bytes from first page, expecting {} bytes", bytes_read, output_buffer.len());
+            }
+
+            node_location = node.file_list_node.next;
         }
-        unimplemented!();
+
+        assert_eq!(filled, output_buffer.len(), "Read incomplete");
+
+        Ok(output_buffer.into())
     }
 
     fn parse_extern_field(
         &self,
         f: &Field,
-        extern_header: &BlobHeader,
+        extern_header: &ExternReference,
         buffer_mgr: &mut dyn BufferManager,
     ) -> FieldValue {
         // Load a page
         match self.load_extern(extern_header, buffer_mgr) {
             Ok(buf) => {
-                trace!("Returned buffer: {}", pretty_hex::pretty_hex(&buf));
                 f.parse(&buf, Some(extern_header.length)).0
             },
             Err(err) => {
@@ -189,7 +203,7 @@ impl<'a> Row<'a> {
             let len = *self.field_len_map.get(&idx).unwrap() as usize;
             assert_eq!(len, 20, "Extern header should be 20 bytes long");
             let extern_header =
-                BlobHeader::from_bytes(&buf[0..len]).expect("Can't make blob header");
+                ExternReference::from_bytes(&buf[0..len]).expect("Can't make blob header");
             trace!("Extern Header: {:?}", &extern_header);
             (
                 self.parse_extern_field(f, &extern_header, buf_mgr),
