@@ -19,7 +19,7 @@ use crate::innodb::{
 use anyhow::{anyhow, Result};
 use tracing::{trace, warn};
 
-const LRU_PAGE_COUNT: usize = 5;
+const LRU_PAGE_COUNT: usize = 128;
 
 pub struct LRUBufferManager {
     backing_store: Vec<[u8; FIL_PAGE_SIZE]>,
