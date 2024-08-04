@@ -6,6 +6,8 @@ use anyhow::{anyhow, Ok, Result};
 
 use super::{Page, PageType};
 
+pub mod data_page;
+
 /*
  * General Flow for reading extern records
  *

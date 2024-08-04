@@ -6,11 +6,11 @@ use std::{
 };
 
 use crate::innodb::{
-    buffer_manager::BufferManager,
+    buffer_manager::{self, BufferManager},
     file_list::FileListInnerNode,
     page::{
         index::record::{Record, RECORD_HEADER_FIXED_LENGTH},
-        lob::{LobFirst, LobIndexEntry},
+        lob::{data_page::LobData, LobFirst, LobIndexEntry},
     },
     table::blob_header::ExternReference,
     InnoDBError,
@@ -139,8 +139,9 @@ impl<'a> Row<'a> {
         extern_header: &ExternReference,
         buffer_mgr: &mut dyn BufferManager,
     ) -> Result<Box<[u8]>> {
+        let space_id = extern_header.space_id;
         let first_page_number = extern_header.page_number;
-        let lob_first_page = buffer_mgr.open_page(extern_header.space_id, first_page_number)?;
+        let lob_first_page = buffer_mgr.open_page(space_id, first_page_number)?;
         if lob_first_page.header.offset != extern_header.page_number {
             return Err(anyhow!(InnoDBError::InvalidPage));
         }
@@ -165,18 +166,23 @@ impl<'a> Row<'a> {
             let node = LobIndexEntry::try_from_bytes(buf)?;
             trace!("Index Node: {:#?}", node);
 
+            let mut bytes_read = 0usize;
             if node.page_number == first_page_number {
-                let bytes_read = lob_first.read(page_offset, &mut output_buffer[filled..]);
-                filled += bytes_read;
-                page_offset = page_offset.saturating_sub(bytes_read);
+                bytes_read = lob_first.read(page_offset, &mut output_buffer[filled..]);
                 trace!(
                     "Read {} bytes from first page, in total expecting {} bytes",
                     bytes_read,
                     output_buffer.len()
                 );
             } else {
-                // TODO: implemtn LobData
+                let page_guard = buffer_mgr.open_page(space_id, node.page_number)?;
+                let data_page = LobData::try_from_page(&page_guard)?;
+                trace!("Data page: {:#?}", data_page);
+                bytes_read = data_page.read(page_offset, &mut output_buffer[filled..]);
+                trace!("Read {} bytes from data page", bytes_read);
             }
+            filled += bytes_read;
+            page_offset = page_offset.saturating_sub(bytes_read);
 
             node_location = node.file_list_node.next;
         }
