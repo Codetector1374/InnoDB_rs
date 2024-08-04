@@ -141,7 +141,7 @@ impl<'a> Row<'a> {
     ) -> Result<Box<[u8]>> {
         let space_id = extern_header.space_id;
         let first_page_number = extern_header.page_number;
-        let lob_first_page = buffer_mgr.open_page(space_id, first_page_number)?;
+        let lob_first_page = buffer_mgr.pin(space_id, first_page_number)?;
         if lob_first_page.header.offset != extern_header.page_number {
             return Err(anyhow!(InnoDBError::InvalidPage));
         }
@@ -175,7 +175,7 @@ impl<'a> Row<'a> {
                     output_buffer.len()
                 );
             } else {
-                let page_guard = buffer_mgr.open_page(space_id, node.page_number)?;
+                let page_guard = buffer_mgr.pin(space_id, node.page_number)?;
                 let data_page = LobData::try_from_page(&page_guard)?;
                 trace!("Data page: {:#?}", data_page);
                 bytes_read = data_page.read(page_offset, &mut output_buffer[filled..]);

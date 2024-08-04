@@ -44,7 +44,7 @@ fn fold_bytes(buf: &[u8]) -> u32 {
 
 #[derive(Default, PartialEq)]
 pub struct Page<'a> {
-    pub space_id: Option<u64>,
+    // pub space_id: u32,
     pub header: FILHeader,
     pub trailer: FILTrailer,
     pub raw_data: &'a [u8],
@@ -65,9 +65,11 @@ impl<'a> Page<'a> {
             return Err(Error::msg("Page is 16kB"));
         }
 
+        let header = FILHeader::from_bytes(&buf[0..38])?;
+
         Ok(Page {
-            space_id: None,
-            header: FILHeader::from_bytes(&buf[0..38])?,
+            // space_id: header.space_id,
+            header: header,
             trailer: FILTrailer::from_bytes(&buf[(FIL_PAGE_SIZE - FIL_TRAILER_SIZE)..])?,
             raw_data: buf,
         })
