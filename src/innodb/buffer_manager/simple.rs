@@ -53,13 +53,13 @@ impl SimpleBufferManager {
 }
 
 impl BufferManager for SimpleBufferManager {
-    fn open_page(&self, space_id: u32, offset: u32) -> Result<PageGuard> {
+    fn pin(&self, space_id: u32, offset: u32) -> Result<PageGuard> {
         let buf = self.get_page(space_id, offset)?;
         trace!("Opened ({}, {})", space_id, offset);
         Ok(PageGuard::new(Page::from_bytes(buf)?, self))
     }
 
-    fn close_page(&self, page: Page) {
-        trace!("Closed ({:?}, {})", page.space_id, page.header.offset);
+    fn unpin(&self, page: Page) {
+        trace!("Closed ({:?}, {})", page.header.space_id, page.header.offset);
     }
 }

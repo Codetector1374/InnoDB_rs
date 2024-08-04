@@ -140,7 +140,7 @@ impl<'a> Row<'a> {
         buffer_mgr: &mut dyn BufferManager,
     ) -> Result<Box<[u8]>> {
         let first_page_number = extern_header.page_number;
-        let lob_first_page = buffer_mgr.open_page(extern_header.space_id, first_page_number)?;
+        let lob_first_page = buffer_mgr.pin(extern_header.space_id, first_page_number)?;
         if lob_first_page.header.offset != extern_header.page_number {
             return Err(anyhow!(InnoDBError::InvalidPage));
         }
