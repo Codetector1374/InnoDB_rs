@@ -32,7 +32,7 @@ impl FileAddress {
     pub fn is_null(&self) -> bool {
         self.page_number == FIL_NULL
     }
-    
+
     fn size() -> usize {
         6
     }
@@ -58,10 +58,10 @@ impl FileListBaseNode {
         Ok(FileListBaseNode {
             list_len,
             first_node,
-            last_node
+            last_node,
         })
     }
-    
+
     pub(crate) fn size() -> usize {
         4 + FileAddress::size() + FileAddress::size()
     }
@@ -79,14 +79,10 @@ impl FileListInnerNode {
             return Err(anyhow!("Buffer is too small"));
         }
 
-
         let prev = FileAddress::try_from_bytes(&buf[0..6])?;
         let next = FileAddress::try_from_bytes(&buf[6..12])?;
 
-        Ok(FileListInnerNode {
-            prev,
-            next
-        })
+        Ok(FileListInnerNode { prev, next })
     }
 
     pub fn size() -> usize {

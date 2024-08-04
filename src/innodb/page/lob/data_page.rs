@@ -1,6 +1,9 @@
 use anyhow::{anyhow, Result};
 
-use crate::innodb::{page::{Page, PageType}, InnoDBError};
+use crate::innodb::{
+    page::{Page, PageType},
+    InnoDBError,
+};
 
 #[derive(Debug, Clone)]
 pub struct LobDataHeader {
@@ -39,10 +42,10 @@ pub struct LobData<'a> {
     pub header: LobDataHeader,
 }
 
-impl <'a> LobData<'a> {
+impl<'a> LobData<'a> {
     pub fn try_from_page(p: &'a Page<'a>) -> Result<Self> {
         match p.header.page_type {
-            PageType::LobData => Ok(LobData{
+            PageType::LobData => Ok(LobData {
                 header: LobDataHeader::try_from_bytes(p.body())?,
                 page: p,
             }),

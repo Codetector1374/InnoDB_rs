@@ -49,6 +49,7 @@ pub enum FieldValue {
     SignedInt(i64),
     UnsignedInt(u64),
     String(String),
+    PartialString { partial: String, total_len: usize },
     Null,
     Skipped,
 }
@@ -106,25 +107,23 @@ impl Field {
                 ),
                 len as usize,
             ),
-            FieldType::Text(max_len, _) => {
-                match length_opt {
-                    None => (FieldValue::Null, 0),
-                    Some(length) => {
-                        assert!(
-                            length <= self.field_type.max_len(),
-                            "Length larger than expected max? {} > {} in field {:?}",
-                            length,
-                            max_len,
-                            self
-                        );
-                        let str = String::from_utf8(buf[..length as usize].into())
-                            .expect("Failed parsing UTF-8")
-                            .trim_end()
-                            .to_string();
-                        (FieldValue::String(str), length as usize)
-                    }
+            FieldType::Text(max_len, _) => match length_opt {
+                None => (FieldValue::Null, 0),
+                Some(length) => {
+                    assert!(
+                        length <= self.field_type.max_len(),
+                        "Length larger than expected max? {} > {} in field {:?}",
+                        length,
+                        max_len,
+                        self
+                    );
+                    let str = String::from_utf8(buf[..length as usize].into())
+                        .expect("Failed parsing UTF-8")
+                        .trim_end()
+                        .to_string();
+                    (FieldValue::String(str), length as usize)
                 }
-            }
+            },
             #[allow(unreachable_patterns)]
             _ => {
                 unimplemented!("type = {:?}", self.field_type);

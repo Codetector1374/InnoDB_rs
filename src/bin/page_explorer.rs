@@ -8,7 +8,9 @@ use std::{
 
 use clap::Parser;
 use innodb::innodb::{
-    buffer_manager::{lru::LRUBufferManager, simple::SimpleBufferManager, BufferManager, DummyBufferMangaer},
+    buffer_manager::{
+        lru::LRUBufferManager, simple::SimpleBufferManager, BufferManager, DummyBufferMangaer,
+    },
     page::{
         index::{record::RecordType, IndexPage},
         Page, PageType, FIL_PAGE_SIZE,
@@ -62,10 +64,12 @@ struct PageExplorer {
     buffer_mgr: Box<dyn BufferManager>,
     total_records: usize,
     missing_records: usize,
+    incomplete_records: usize,
 }
 
 impl PageExplorer {
-    fn write_row(&mut self, row: &Row, values: &[FieldValue]) -> Result<()> {
+    fn write_row(&mut self, values: &[FieldValue]) -> Result<()> {
+        let mut has_missing = false;
         if let Some(writer) = &mut self.output_writer {
             writer.begin_object()?;
 
@@ -82,10 +86,18 @@ impl PageExplorer {
                     FieldValue::UnsignedInt(v) => writer.number_value(*v)?,
                     FieldValue::String(s) => writer.string_value(s)?,
                     FieldValue::Null => writer.null_value()?,
+                    FieldValue::Skipped => {
+                        has_missing = true;
+                        writer.null_value()?;
+                    }
                     _ => panic!("Unsupported Field Value for writing JSON"),
                 };
             }
             writer.end_object()?;
+        }
+
+        if has_missing {
+            self.incomplete_records += 1;
         }
         Ok(())
     }
@@ -111,7 +123,7 @@ impl PageExplorer {
                         let values = row.parse_values(self.buffer_mgr.as_mut());
                         assert_eq!(values.len(), table.field_count());
                         debug!("{:?}", values);
-                        self.write_row(&row, &values).expect("Failed to write row");
+                        self.write_row(&values).expect("Failed to write row");
                     }
                 }
                 RecordType::NodePointer => {
@@ -145,6 +157,9 @@ impl PageExplorer {
     }
 
     fn explore_page(&mut self, file_offset: usize, page: Page) {
+        if page.header.page_type == PageType::Allocated {
+            return;
+        }
         if page.crc32_checksum() == page.header.new_checksum {
             trace!("Page @ {:#x} byte has valid CRC32c checksum", file_offset);
         } else if page.innodb_checksum() == page.header.new_checksum {
@@ -173,6 +188,7 @@ impl PageExplorer {
                 }
                 self.explore_index(&index_page);
             }
+            PageType::Blob | PageType::LobFirst | PageType::LobData => {}
             _ => warn!("Unknown page type: {:?}", page.header.page_type),
         }
     }
@@ -223,8 +239,8 @@ impl PageExplorer {
         }
 
         info!(
-            "Processed {} pages, total records: {}, potentially missing: {}",
-            counter, self.total_records, self.missing_records
+            "Processed {} pages, total records: {}, potentially missing: {}, Incomplete: {}",
+            counter, self.total_records, self.missing_records, self.incomplete_records
         );
     }
 }
@@ -258,6 +274,7 @@ fn main() {
         output_writer: None,
         total_records: 0,
         missing_records: 0,
+        incomplete_records: 0,
     };
 
     if let Some(tablespace) = &args.tablespce_dir {

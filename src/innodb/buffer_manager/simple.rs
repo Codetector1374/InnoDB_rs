@@ -1,5 +1,4 @@
 use anyhow::Result;
-use tracing::trace;
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -8,6 +7,7 @@ use std::{
     path::{Path, PathBuf},
     slice,
 };
+use tracing::trace;
 
 use crate::innodb::page::{Page, FIL_PAGE_SIZE};
 
@@ -60,6 +60,10 @@ impl BufferManager for SimpleBufferManager {
     }
 
     fn unpin(&self, page: Page) {
-        trace!("Closed ({:?}, {})", page.header.space_id, page.header.offset);
+        trace!(
+            "Closed ({:?}, {})",
+            page.header.space_id,
+            page.header.offset
+        );
     }
 }

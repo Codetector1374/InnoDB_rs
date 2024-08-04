@@ -1,6 +1,6 @@
+pub mod blob_header;
 pub mod field;
 pub mod row;
-pub mod blob_header;
 
 use anyhow::{anyhow, Result};
 use field::{Field, FieldType};

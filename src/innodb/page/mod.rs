@@ -200,7 +200,7 @@ impl FILHeader {
         let page_type = match PageType::try_from_primitive(page_type_value) {
             Ok(page_type) => page_type,
             Err(e) => {
-                debug!("Invalid FIL PageType: {:?}", e);      
+                debug!("Invalid FIL PageType: {:?}", e);
                 PageType::Unknown
             }
         };

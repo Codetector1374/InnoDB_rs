@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use super::page::Page;
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 
 pub mod lru;
 pub mod simple;
@@ -13,10 +13,10 @@ pub trait BufferManager {
 
 pub struct PageGuard<'a> {
     page: Page<'a>,
-    buffer_manager: &'a dyn BufferManager
+    buffer_manager: &'a dyn BufferManager,
 }
 
-impl <'a> PageGuard<'a> {
+impl<'a> PageGuard<'a> {
     pub fn new(page: Page<'a>, buffer_manager: &'a dyn BufferManager) -> Self {
         PageGuard {
             page,
@@ -25,7 +25,7 @@ impl <'a> PageGuard<'a> {
     }
 }
 
-impl <'a> Deref for PageGuard<'a> {
+impl<'a> Deref for PageGuard<'a> {
     type Target = Page<'a>;
 
     fn deref(&self) -> &Self::Target {
@@ -33,7 +33,7 @@ impl <'a> Deref for PageGuard<'a> {
     }
 }
 
-impl <'a> Drop for PageGuard<'a> {
+impl<'a> Drop for PageGuard<'a> {
     fn drop(&mut self) {
         self.buffer_manager.unpin(std::mem::take(&mut self.page));
     }

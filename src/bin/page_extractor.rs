@@ -224,8 +224,7 @@ fn main() {
             PageValidationResult::InvalidChecksum => {
                 failed_checksum += 1;
             }
-            PageValidationResult::NotAPage |
-            PageValidationResult::EmptyPage => {}
+            PageValidationResult::NotAPage | PageValidationResult::EmptyPage => {}
         }
 
         head_pointer += step_size;

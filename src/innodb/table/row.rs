@@ -187,14 +187,10 @@ impl<'a> Row<'a> {
             node_location = node.file_list_node.next;
         }
 
-        info!("huh {}, {}", filled, output_buffer.len());
-        assert_eq!(
-            filled,
-            output_buffer.len(),
-            "Read incomplete, expect {} have {}",
-            output_buffer.len(),
-            filled
-        );
+        if filled < output_buffer.len() {
+            warn!("huh {}, {}", filled, output_buffer.len());
+            return Err(anyhow!("Read incomplete"));
+        }
 
         Ok(output_buffer.into())
     }
