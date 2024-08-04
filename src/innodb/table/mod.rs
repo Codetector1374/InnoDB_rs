@@ -175,10 +175,16 @@ impl TableDefinition {
                 });
             }
 
+            for field in cluster_index_columns.iter() {
+                let field = parsed_fields
+                    .iter()
+                    .find(|f| f.name == *field)
+                    .expect("Failed to find named column in clustering index");
+                table_def.cluster_columns.push(field.clone());
+            }
+
             for field in parsed_fields.into_iter() {
-                if cluster_index_columns.contains(&field.name) {
-                    table_def.cluster_columns.push(field);
-                } else {
+                if !cluster_index_columns.contains(&field.name) {
                     table_def.data_columns.push(field);
                 }
             }
