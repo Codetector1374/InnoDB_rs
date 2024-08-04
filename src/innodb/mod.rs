@@ -16,6 +16,7 @@ pub enum InnoDBError {
     InvalidLength,
     InvalidChecksum,
     InvalidPage,
+    PageNotFound,
     InvalidPageType { expected: PageType, has: PageType },
 }
 

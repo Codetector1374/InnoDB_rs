@@ -8,7 +8,7 @@ use std::{
 
 use clap::Parser;
 use innodb::innodb::{
-    buffer_manager::{simple::SimpleBufferManager, BufferManager, DummyBufferMangaer},
+    buffer_manager::{lru::LRUBufferManager, simple::SimpleBufferManager, BufferManager, DummyBufferMangaer},
     page::{
         index::{record::RecordType, IndexPage},
         Page, PageType, FIL_PAGE_SIZE,
@@ -253,7 +253,7 @@ fn main() {
 
     let mut explorer = PageExplorer {
         arguments: args.clone(),
-        table_def: table_def,
+        table_def,
         buffer_mgr: Box::new(DummyBufferMangaer),
         output_writer: None,
         total_records: 0,
@@ -261,7 +261,8 @@ fn main() {
     };
 
     if let Some(tablespace) = &args.tablespce_dir {
-        explorer.buffer_mgr = Box::new(SimpleBufferManager::new(tablespace));
+        // explorer.buffer_mgr = Box::new(SimpleBufferManager::new(tablespace));
+        explorer.buffer_mgr = Box::new(LRUBufferManager::new(tablespace));
     }
 
     explorer.run();
