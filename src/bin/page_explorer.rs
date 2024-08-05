@@ -198,6 +198,7 @@ impl PageExplorer {
             BufReader::new(File::open(&self.arguments.file).expect("Can't open page file"));
         let mut buffer = Box::<[u8]>::from([0u8; FIL_PAGE_SIZE]);
         let mut counter = 0usize;
+        let mut index_counter = 0usize;
 
         if let Some(output) = &self.arguments.output {
             let file = File::create(output).expect("Can't open output file for write");
@@ -214,6 +215,9 @@ impl PageExplorer {
                         break;
                     }
                     let page = Page::from_bytes(&buffer).unwrap();
+                    if page.header.page_type == PageType::Index {
+                        index_counter += 1;
+                    }
                     if let Some(page_id) = self.arguments.page_id {
                         if page.header.offset != page_id {
                             continue;
@@ -226,7 +230,7 @@ impl PageExplorer {
             }
 
             if let Some(limit) = self.arguments.limit {
-                if counter >= limit {
+                if index_counter >= limit {
                     info!("Exiting early due to --limit argument");
                     break;
                 }

@@ -1,7 +1,7 @@
 use std::u64;
 
 use crate::innodb::charset::InnoDBCharset;
-use tracing::trace;
+use tracing::{info, trace};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FieldType {
@@ -80,13 +80,22 @@ impl Field {
         if signed {
             let numeric_value = num & ((1u64 << (len * 8 - 1)) - 1);
             let is_positive = (num & (1u64 << (len * 8 - 1))) != 0;
-            FieldValue::SignedInt(if is_positive {
-                numeric_value as i64
+            let mask = if is_positive {
+                0u64
             } else {
-                -(numeric_value as i64)
-            })
+                u64::MAX << (len * 8 - 1)
+            };
+            let signed_value = (numeric_value | mask) as i64;
+            if signed_value == -127 && len == 1 {
+                info!(
+                    "DBG: numeric_value: {:#x}, pos: {}",
+                    numeric_value, is_positive
+                );
+            }
+            FieldValue::SignedInt(signed_value)
         } else {
-            FieldValue::UnsignedInt(num & !(u64::MAX << (len * 8)))
+            assert!(len == 8 || num < (1 << (len * 8)));
+            FieldValue::UnsignedInt(num)
         }
     }
 
@@ -140,7 +149,7 @@ mod test {
     use super::{Field, FieldType};
 
     #[test]
-    fn test_field_parse_int() {
+    fn test_field_parse_medium_int() {
         let buf = [0x80, 0x00, 0x00];
         let field = Field {
             name: Default::default(),
@@ -150,6 +159,21 @@ mod test {
         let result = field.parse_int(&buf, 3, true);
         match result {
             super::FieldValue::SignedInt(val) => assert_eq!(val, 0),
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn test_field_parse_tiny_int() {
+        let buf = [0x7F];
+        let field = Field {
+            name: Default::default(),
+            field_type: FieldType::TinyInt(true),
+            nullable: false,
+        };
+        let result = field.parse_int(&buf, 1, true);
+        match result {
+            super::FieldValue::SignedInt(val) => assert_eq!(val, -1),
             _ => unreachable!(),
         }
     }
