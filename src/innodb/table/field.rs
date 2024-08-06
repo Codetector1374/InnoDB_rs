@@ -78,19 +78,15 @@ impl Field {
             num = (num << 8) | (byte as u64);
         }
         if signed {
-            let numeric_value = num & ((1u64 << (len * 8 - 1)) - 1);
-            let is_positive = (num & (1u64 << (len * 8 - 1))) != 0;
-            let mask = if is_positive {
-                0u64
+            num ^= 1u64 << (len * 8 - 1);  // Filp the sign bit -- I don`t know why but it works
+
+            let signed_value;
+            if (num & (1u64 << (len * 8 - 1))) != 0 {
+                num = !(num - 1);
+                num &= (1u64 << (len * 8)) - 1;  // Clear other bits
+                signed_value = -(num as i64);
             } else {
-                u64::MAX << (len * 8 - 1)
-            };
-            let signed_value = (numeric_value | mask) as i64;
-            if signed_value == -127 && len == 1 {
-                info!(
-                    "DBG: numeric_value: {:#x}, pos: {}",
-                    numeric_value, is_positive
-                );
+                signed_value = num as i64;
             }
             FieldValue::SignedInt(signed_value)
         } else {
