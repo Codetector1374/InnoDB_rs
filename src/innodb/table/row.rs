@@ -166,7 +166,7 @@ impl<'a> Row<'a> {
             let node = LobIndexEntry::try_from_bytes(buf)?;
             trace!("Index Node: {:#?}", node);
 
-            let mut bytes_read = 0usize;
+            let bytes_read;
             if node.page_number == first_page_number {
                 bytes_read = lob_first.read(page_offset, &mut output_buffer[filled..]);
                 trace!(
