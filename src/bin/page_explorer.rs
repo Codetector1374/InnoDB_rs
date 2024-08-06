@@ -123,6 +123,10 @@ impl PageExplorer {
                         let values = row.parse_values(self.buffer_mgr.as_mut());
                         assert_eq!(values.len(), table.field_count());
                         debug!("{:?}", values);
+                        if row.record.header.info_flags.deleted {
+                            info!("Skipping Deleted Row");
+                            continue;
+                        }
                         self.write_row(&values).expect("Failed to write row");
                     }
                 }

@@ -32,7 +32,7 @@ pub struct Row<'a> {
 
     // Field Index, length
     field_len_map: HashMap<usize, u64>,
-    record: Record<'a>,
+    pub record: Record<'a>,
 }
 
 impl<'a> Debug for Row<'a> {
