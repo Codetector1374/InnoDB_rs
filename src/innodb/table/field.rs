@@ -12,6 +12,8 @@ pub enum FieldType {
     Int6(bool),      // 6
     BigInt(bool),    // 8
 
+    Enum(Vec<String>),
+
     Text(usize, InnoDBCharset), // CHAR type with non-latin charset also uses this apparently
     Char(usize, InnoDBCharset),
 }
@@ -25,6 +27,7 @@ impl FieldType {
             | FieldType::Int(_)
             | FieldType::Int6(_)
             | FieldType::BigInt(_) => false,
+            FieldType::Enum(_) => false,
             FieldType::Char(_, _) => false,
             FieldType::Text(_, _) => true,
         }
@@ -38,6 +41,7 @@ impl FieldType {
             FieldType::Int(_) => 4,
             FieldType::Int6(_) => 6,
             FieldType::BigInt(_) => 8,
+            FieldType::Enum(_) => 2,
             FieldType::Text(len, charset) => (*len as u64) * charset.max_len(),
             FieldType::Char(len, charset) => (*len as u64) * charset.max_len(),
         }
@@ -78,12 +82,12 @@ impl Field {
             num = (num << 8) | (byte as u64);
         }
         if signed {
-            num ^= 1u64 << (len * 8 - 1);  // Filp the sign bit -- I don`t know why but it works
+            num ^= 1u64 << (len * 8 - 1); // Filp the sign bit -- I don`t know why but it works
 
             let signed_value;
             if (num & (1u64 << (len * 8 - 1))) != 0 {
                 num = !(num - 1);
-                num &= (1u64 << (len * 8)) - 1;  // Clear other bits
+                num &= (1u64 << (len * 8)) - 1; // Clear other bits
                 signed_value = -(num as i64);
             } else {
                 signed_value = num as i64;
@@ -129,6 +133,20 @@ impl Field {
                     (FieldValue::String(str), length as usize)
                 }
             },
+            FieldType::Enum(ref values) => {
+                let len = if values.len() <= u8::MAX as usize {
+                    1
+                } else {
+                    2
+                };
+
+                if let FieldValue::UnsignedInt(num) = self.parse_int(buf, len, false) {
+                    assert!((num as usize) < values.len(), "Enum Value is larger than expected?");
+                    (FieldValue::String(values[num as usize].clone()), len)
+                } else {
+                    panic!("Unexpected Enum Parsing Failure");
+                }
+            }
             #[allow(unreachable_patterns)]
             _ => {
                 unimplemented!("type = {:?}", self.field_type);

@@ -92,6 +92,9 @@ impl TableDefinition {
                         "longtext" => FieldType::Text((1 << 32) - 1, charset),
                         _ => unimplemented!("Custom: {} unhandled", name.0[0].value),
                     },
+                    DataType::Enum(values) => {
+                        FieldType::Enum(values.clone())
+                    },
                     _ => unimplemented!("mapping of {:?}", column.data_type),
                 };
 
