@@ -68,10 +68,12 @@ struct PageExplorer {
 }
 
 impl PageExplorer {
-    fn write_row(&mut self, values: &[FieldValue]) -> Result<()> {
+    fn write_row(&mut self, deleted: bool, values: &[FieldValue]) -> Result<()> {
         let mut has_missing = false;
         if let Some(writer) = &mut self.output_writer {
             writer.begin_object()?;
+            writer.name("_deleted")?;
+            writer.bool_value(deleted)?;
 
             let td = self.table_def.as_ref().unwrap();
             for (idx, col) in td
@@ -123,11 +125,7 @@ impl PageExplorer {
                         let values = row.parse_values(self.buffer_mgr.as_mut());
                         assert_eq!(values.len(), table.field_count());
                         debug!("{:?}", values);
-                        if row.record.header.info_flags.deleted {
-                            info!("Skipping Deleted Row");
-                            continue;
-                        }
-                        self.write_row(&values).expect("Failed to write row");
+                        self.write_row(row.record.header.info_flags.deleted, &values).expect("Failed to write row");
                     }
                 }
                 RecordType::NodePointer => {
