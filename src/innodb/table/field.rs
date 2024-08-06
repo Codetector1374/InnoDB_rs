@@ -16,6 +16,8 @@ pub enum FieldType {
 
     Text(usize, InnoDBCharset), // CHAR type with non-latin charset also uses this apparently
     Char(usize, InnoDBCharset),
+
+    Date,
 }
 impl FieldType {
     // Returns how many bytes does the "length" metadata takes up
@@ -27,7 +29,7 @@ impl FieldType {
             | FieldType::Int(_)
             | FieldType::Int6(_)
             | FieldType::BigInt(_) => false,
-            FieldType::Enum(_) => false,
+            FieldType::Enum(_) | FieldType::Date => false,
             FieldType::Char(_, _) => false,
             FieldType::Text(_, _) => true,
         }
@@ -42,6 +44,7 @@ impl FieldType {
             FieldType::Int6(_) => 6,
             FieldType::BigInt(_) => 8,
             FieldType::Enum(_) => 2,
+            FieldType::Date => 3,
             FieldType::Text(len, charset) => (*len as u64) * charset.max_len(),
             FieldType::Char(len, charset) => (*len as u64) * charset.max_len(),
         }
@@ -133,6 +136,16 @@ impl Field {
                     (FieldValue::String(str), length as usize)
                 }
             },
+            FieldType::Date => {
+                if let FieldValue::SignedInt(date_num) = self.parse_int(buf, 3, true) {
+                    let day = date_num & 0x1F;
+                    let month = (date_num >> 5) & 0xF;
+                    let year = date_num >> 9;
+                    (FieldValue::String(format!("{:04}-{:02}-{:02}", year, month, day)), 3)
+                } else {
+                    panic!("Can't parse int");
+                }
+            },
             FieldType::Enum(ref values) => {
                 let len = if values.len() <= u8::MAX as usize {
                     1
@@ -141,7 +154,10 @@ impl Field {
                 };
 
                 if let FieldValue::UnsignedInt(num) = self.parse_int(buf, len, false) {
-                    assert!((num as usize) < values.len(), "Enum Value is larger than expected?");
+                    assert!(
+                        (num as usize) < values.len(),
+                        "Enum Value is larger than expected?"
+                    );
                     (FieldValue::String(values[num as usize].clone()), len)
                 } else {
                     panic!("Unexpected Enum Parsing Failure");

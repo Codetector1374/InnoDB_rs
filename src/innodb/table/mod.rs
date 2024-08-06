@@ -95,6 +95,7 @@ impl TableDefinition {
                     DataType::Enum(values) => {
                         FieldType::Enum(values.clone())
                     },
+                    DataType::Date => FieldType::Date,
                     _ => unimplemented!("mapping of {:?}", column.data_type),
                 };
 
