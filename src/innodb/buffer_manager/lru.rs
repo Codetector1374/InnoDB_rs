@@ -1,14 +1,11 @@
 use std::{
-    borrow::BorrowMut,
     cell::RefCell,
-    collections::{HashMap, LinkedList},
+    collections::HashMap,
     fs::File,
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     slice,
-    sync::atomic::{AtomicU32, AtomicU64, Ordering},
     time::SystemTime,
-    usize,
 };
 
 use super::{BufferManager, PageGuard};
@@ -17,7 +14,7 @@ use crate::innodb::{
     InnoDBError,
 };
 use anyhow::{anyhow, Result};
-use tracing::{trace, warn};
+use tracing::trace;
 
 const LRU_PAGE_COUNT: usize = 16;
 
@@ -52,7 +49,7 @@ impl LRUBufferManager {
             .lru_list
             .borrow_mut()
             .resize(LRU_PAGE_COUNT, 0);
-        return buffer_manager;
+        buffer_manager
     }
 
     pub fn find_free(&self) -> usize {
@@ -74,15 +71,13 @@ impl LRUBufferManager {
             let ((space_id, offset), _) = borrowed_pin_map
                 .iter()
                 .find(|(_, val)| **val == result_frame)
-                .expect(&format!(
-                    "can't find the frame({result_frame}), {:#?}, pinmap: {:#?}",
-                    self, borrowed_pin_map
-                ))
+                .unwrap_or_else(|| panic!("can't find the frame({result_frame}), {:#?}, pinmap: {:#?}",
+                    self, borrowed_pin_map))
                 .to_owned();
             let (space_id, offset) = (*space_id, *offset);
             borrowed_pin_map.remove(&(space_id, offset));
             self.lru_list.borrow_mut()[result_frame] = 0;
-            return result_frame;
+            result_frame
         } else {
             panic!("pin too many pages, \nState: {:#?}", self);
         }
@@ -127,7 +122,7 @@ impl BufferManager for LRUBufferManager {
         })?;
 
         // Validate page *FIRST*
-        let page = Page::from_bytes(&self.backing_store[free_frame as usize])?;
+        let page = Page::from_bytes(&self.backing_store[free_frame])?;
         if page.header.space_id == 0 && page.header.offset == 0 {
             return Err(anyhow!(InnoDBError::PageNotFound));
         }

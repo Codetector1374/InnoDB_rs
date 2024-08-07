@@ -18,7 +18,7 @@ struct Page {
 impl Page {
     fn offset(&self) -> u32 {
         let num: [u8; 4] = self.data[4..8].try_into().unwrap();
-        return u32::from_be_bytes(num);
+        u32::from_be_bytes(num)
     }
 }
 

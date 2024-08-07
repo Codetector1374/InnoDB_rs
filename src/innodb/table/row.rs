@@ -6,8 +6,7 @@ use std::{
 };
 
 use crate::innodb::{
-    buffer_manager::{self, BufferManager},
-    file_list::FileListInnerNode,
+    buffer_manager::{BufferManager},
     page::{
         index::record::{Record, RECORD_HEADER_FIXED_LENGTH},
         lob::{data_page::LobData, LobFirst, LobIndexEntry},
@@ -22,7 +21,7 @@ use super::{
 };
 
 use anyhow::{anyhow, Result};
-use tracing::{debug, info, trace, warn};
+use tracing::{trace, warn};
 
 pub struct Row<'a> {
     td: Arc<TableDefinition>,
@@ -32,7 +31,7 @@ pub struct Row<'a> {
 
     // Field Index, length
     field_len_map: HashMap<usize, u64>,
-    record: Record<'a>,
+    pub record: Record<'a>,
 }
 
 impl<'a> Debug for Row<'a> {
@@ -229,7 +228,7 @@ impl<'a> Row<'a> {
             trace!("Extern Header: {:?}", &extern_header);
             (
                 self.parse_extern_field(f, &extern_header, buf_mgr),
-                len as usize,
+                len,
             )
         } else {
             let (value, len) = f.parse(buf, self.field_len_map.get(&idx).cloned());
