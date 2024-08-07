@@ -1,6 +1,5 @@
-use std::u64;
-
 use crate::innodb::charset::InnoDBCharset;
+use chrono::DateTime;
 use tracing::{info, trace};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,20 +17,15 @@ pub enum FieldType {
     Char(usize, InnoDBCharset),
 
     Date,
+    DateTime,
+    Timestamp,
 }
 impl FieldType {
     // Returns how many bytes does the "length" metadata takes up
     pub fn is_variable(&self) -> bool {
         match self {
-            FieldType::TinyInt(_)
-            | FieldType::SmallInt(_)
-            | FieldType::MediumInt(_)
-            | FieldType::Int(_)
-            | FieldType::Int6(_)
-            | FieldType::BigInt(_) => false,
-            FieldType::Enum(_) | FieldType::Date => false,
-            FieldType::Char(_, _) => false,
             FieldType::Text(_, _) => true,
+            _ => false,
         }
     }
 
@@ -45,6 +39,8 @@ impl FieldType {
             FieldType::BigInt(_) => 8,
             FieldType::Enum(_) => 2,
             FieldType::Date => 3,
+            FieldType::DateTime => 8,
+            FieldType::Timestamp => 4,
             FieldType::Text(len, charset) => (*len as u64) * charset.max_len(),
             FieldType::Char(len, charset) => (*len as u64) * charset.max_len(),
         }
@@ -77,47 +73,55 @@ impl Field {
         }
     }
 
-    fn parse_int(&self, buf: &[u8], len: usize, signed: bool) -> FieldValue {
+    fn parse_uint(&self, buf: &[u8], len: usize) -> u64 {
         assert!(len <= 8, "Currently only support upto u64");
         assert!(buf.len() >= len, "buf not long enough");
         let mut num = 0u64;
         for byte in buf[0..len].iter().cloned() {
             num = (num << 8) | (byte as u64);
         }
-        if signed {
-            num ^= 1u64 << (len * 8 - 1); // Filp the sign bit -- I don`t know why but it works
+        num
+    }
 
-            let signed_value;
-            if (num & (1u64 << (len * 8 - 1))) != 0 {
-                num = !(num - 1);
-                num &= (1u64 << (len * 8)) - 1; // Clear other bits
-                signed_value = -(num as i64);
-            } else {
-                signed_value = num as i64;
-            }
-            FieldValue::SignedInt(signed_value)
+    fn parse_signed_int(&self, buf: &[u8], len: usize) -> i64 {
+        let mut num = self.parse_uint(buf, len);
+        num ^= 1u64 << (len * 8 - 1); // Filp the sign bit -- I don`t know why but it works
+
+        let signed_value;
+        if (num & (1u64 << (len * 8 - 1))) != 0 {
+            num = !(num - 1);
+            num &= (1u64 << (len * 8)) - 1; // Clear other bits
+            signed_value = -(num as i64);
         } else {
-            assert!(len == 8 || num < (1 << (len * 8)));
-            FieldValue::UnsignedInt(num)
+            signed_value = num as i64;
+        }
+        signed_value
+    }
+
+    fn parse_int_field(&self, buf: &[u8], len: usize, signed: bool) -> FieldValue {
+        if signed {
+            FieldValue::SignedInt(self.parse_signed_int(buf, len))
+        } else {
+            FieldValue::UnsignedInt(self.parse_uint(buf, len))
         }
     }
 
     pub fn parse(&self, buf: &[u8], length_opt: Option<u64>) -> (FieldValue, usize) {
         let (val, len) = match self.field_type {
-            FieldType::TinyInt(signed) => (self.parse_int(buf, 1, signed), 1),
-            FieldType::SmallInt(signed) => (self.parse_int(buf, 2, signed), 2),
-            FieldType::MediumInt(signed) => (self.parse_int(buf, 3, signed), 3),
-            FieldType::Int(signed) => (self.parse_int(buf, 4, signed), 4),
-            FieldType::Int6(signed) => (self.parse_int(buf, 6, signed), 6),
-            FieldType::BigInt(signed) => (self.parse_int(buf, 8, signed), 8),
+            FieldType::TinyInt(signed) => (self.parse_int_field(buf, 1, signed), 1),
+            FieldType::SmallInt(signed) => (self.parse_int_field(buf, 2, signed), 2),
+            FieldType::MediumInt(signed) => (self.parse_int_field(buf, 3, signed), 3),
+            FieldType::Int(signed) => (self.parse_int_field(buf, 4, signed), 4),
+            FieldType::Int6(signed) => (self.parse_int_field(buf, 6, signed), 6),
+            FieldType::BigInt(signed) => (self.parse_int_field(buf, 8, signed), 8),
             FieldType::Char(len, _) => (
                 FieldValue::String(
-                    String::from_utf8(buf[0..len as usize].into())
+                    String::from_utf8(buf[0..len].into())
                         .expect("Failed parsing UTF-8")
                         .trim_end()
                         .to_string(),
                 ),
-                len as usize,
+                len,
             ),
             FieldType::Text(max_len, _) => match length_opt {
                 None => (FieldValue::Null, 0),
@@ -137,15 +141,45 @@ impl Field {
                 }
             },
             FieldType::Date => {
-                if let FieldValue::SignedInt(date_num) = self.parse_int(buf, 3, true) {
-                    let day = date_num & 0x1F;
-                    let month = (date_num >> 5) & 0xF;
-                    let year = date_num >> 9;
-                    (FieldValue::String(format!("{:04}-{:02}-{:02}", year, month, day)), 3)
+                let date_num = self.parse_signed_int(buf, 3);
+                let day = date_num & 0x1F;
+                let month = (date_num >> 5) & 0xF;
+                let year = date_num >> 9;
+                (
+                    FieldValue::String(format!("{:04}-{:02}-{:02}", year, month, day)),
+                    3,
+                )
+            }
+            FieldType::DateTime => {
+                let datetime = self.parse_signed_int(buf, 8) as u64;
+                let yd = datetime >> 46;
+                let year = yd / 13;
+                let month = yd - year * 13;
+                let day = (datetime >> 41) & 0b11111;
+                let hour = (datetime >> 36) & 0b11111;
+                let min = (datetime >> 30) & 0b111111;
+                let sec = (datetime >> 24) & 0b111111;
+                (
+                    FieldValue::String(format!(
+                        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+                        year, month, day, hour, min, sec
+                    )),
+                    8,
+                )
+            }
+            FieldType::Timestamp => {
+                let ts = self.parse_uint(buf, 4);
+                if ts == 0 {
+                    (FieldValue::String("0000-00-00 00:00:00".to_owned()), 4)
                 } else {
-                    panic!("Can't parse int");
+                    let datetime =
+                        DateTime::from_timestamp(ts as i64, 0).expect("Out of range Datetime");
+                    (
+                        FieldValue::String(format!("{}", datetime.format("%Y-%m-%d %H:%M:%S"))),
+                        4,
+                    )
                 }
-            },
+            }
             FieldType::Enum(ref values) => {
                 let len = if values.len() <= u8::MAX as usize {
                     1
@@ -153,15 +187,12 @@ impl Field {
                     2
                 };
 
-                if let FieldValue::UnsignedInt(num) = self.parse_int(buf, len, false) {
-                    assert!(
-                        (num as usize) < values.len(),
-                        "Enum Value is larger than expected?"
-                    );
-                    (FieldValue::String(values[num as usize].clone()), len)
-                } else {
-                    panic!("Unexpected Enum Parsing Failure");
-                }
+                let num = self.parse_uint(buf, len);
+                assert!(
+                    (num as usize) < values.len(),
+                    "Enum Value is larger than expected?"
+                );
+                (FieldValue::String(values[num as usize].clone()), len)
             }
             #[allow(unreachable_patterns)]
             _ => {
@@ -186,7 +217,7 @@ mod test {
             field_type: FieldType::MediumInt(true),
             nullable: false,
         };
-        let result = field.parse_int(&buf, 3, true);
+        let result = field.parse_int_field(&buf, 3, true);
         match result {
             super::FieldValue::SignedInt(val) => assert_eq!(val, 0),
             _ => unreachable!(),
@@ -201,7 +232,7 @@ mod test {
             field_type: FieldType::TinyInt(true),
             nullable: false,
         };
-        let result = field.parse_int(&buf, 1, true);
+        let result = field.parse_int_field(&buf, 1, true);
         match result {
             super::FieldValue::SignedInt(val) => assert_eq!(val, -1),
             _ => unreachable!(),

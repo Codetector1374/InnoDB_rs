@@ -92,10 +92,10 @@ impl TableDefinition {
                         "longtext" => FieldType::Text((1 << 32) - 1, charset),
                         _ => unimplemented!("Custom: {} unhandled", name.0[0].value),
                     },
-                    DataType::Enum(values) => {
-                        FieldType::Enum(values.clone())
-                    },
+                    DataType::Enum(values) => FieldType::Enum(values.clone()),
                     DataType::Date => FieldType::Date,
+                    DataType::Datetime(_)=> FieldType::DateTime,
+                    DataType::Timestamp(_,_) => FieldType::Timestamp,
                     _ => unimplemented!("mapping of {:?}", column.data_type),
                 };
 
@@ -107,7 +107,7 @@ impl TableDefinition {
                 let field = Field {
                     name: column.name.value.clone(),
                     field_type: f_type,
-                    nullable: nullable,
+                    nullable,
                 };
 
                 parsed_fields.push(field);
@@ -194,7 +194,7 @@ impl TableDefinition {
             }
 
             assert!(
-                table_def.cluster_columns.len() > 0,
+                !table_def.cluster_columns.is_empty(),
                 "Table must have at least 1 cluster column"
             );
 
@@ -260,7 +260,7 @@ mod test {
         let field1 = def.get_field("field1").unwrap();
         assert_eq!(field1.name, "field1");
         assert_eq!(field1.field_type, FieldType::Int(false));
-        assert_eq!(field1.nullable, false);
+        assert!(!field1.nullable);
     }
 
     #[test]

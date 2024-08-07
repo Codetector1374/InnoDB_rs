@@ -75,7 +75,7 @@ fn validate_page(page: &[u8]) -> PageValidationResult {
     };
 
     trace!("Bad page: {:#?}", page);
-    return PageValidationResult::NotAPage;
+    PageValidationResult::NotAPage
 }
 
 fn main() {

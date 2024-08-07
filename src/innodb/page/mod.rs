@@ -69,7 +69,7 @@ impl<'a> Page<'a> {
 
         Ok(Page {
             // space_id: header.space_id,
-            header: header,
+            header,
             trailer: FILTrailer::from_bytes(&buf[(FIL_PAGE_SIZE - FIL_TRAILER_SIZE)..])?,
             raw_data: buf,
         })
