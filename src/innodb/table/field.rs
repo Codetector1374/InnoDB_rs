@@ -188,11 +188,16 @@ impl Field {
                 };
 
                 let num = self.parse_uint(buf, len);
-                assert!(
-                    (num as usize) < values.len(),
-                    "Enum Value is larger than expected?"
-                );
-                (FieldValue::String(values[num as usize].clone()), len)
+                if num == 0 {
+                    (FieldValue::String("__ERROR__".to_owned()), len)
+                } else {
+                    let variant_index = num - 1;
+                    assert!(
+                        (variant_index as usize) < values.len(),
+                        "Enum Value is larger than expected? {} vs {}", variant_index, values.len()
+                    );
+                    (FieldValue::String(values[variant_index as usize].clone()), len)
+                }
             }
             #[allow(unreachable_patterns)]
             _ => {
