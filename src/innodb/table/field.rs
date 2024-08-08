@@ -189,7 +189,7 @@ impl Field {
 
                 let num = self.parse_uint(buf, len);
                 if num == 0 {
-                    (FieldValue::String("__ERROR__".to_owned()), len)
+                    (FieldValue::String("".to_owned()), len)
                 } else {
                     let variant_index = num - 1;
                     assert!(
