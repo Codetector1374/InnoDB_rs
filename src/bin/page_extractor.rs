@@ -101,7 +101,7 @@ fn main() {
             if output_by_tablespace.read_dir().unwrap().next().is_some() {
                 panic!(
                     "Output directory is not empty: {}",
-                    output_blob.to_str().unwrap()
+                    output_by_tablespace.to_str().unwrap()
                 );
             }
         } else {

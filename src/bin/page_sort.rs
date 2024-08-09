@@ -1,7 +1,7 @@
-use std::{fs::{self, File}, io::{Error, Read}, os::windows::fs::FileExt, path::PathBuf};
+use std::{fs::File, io::{Error, Seek}, os::windows::fs::FileExt, path::PathBuf};
 
 use clap::Parser;
-use indicatif::ProgressStyle;
+use indicatif::{ProgressBar, ProgressStyle};
 use tracing::{info, warn};
 
 #[derive(Parser, Debug, Clone)]
@@ -22,41 +22,34 @@ struct Arguments {
     output: PathBuf,
 
     #[arg(
-        help = "Page(s) file directory, should contain one or multiple raw 16K page",
-        value_name = "PAGE_FILE_DIR"
+        help = "Pages file, should contain one or multiple raw 16K page",
+        value_name = "PAGES_FILE"
     )]
-    directory: PathBuf
+    input: PathBuf
 }
 
 fn arr2int(buf:&[u8; 4]) -> u32{
     ((buf[0] as u32) << 24) | ((buf[1] as u32) << 16) | ((buf[2] as u32) << 8) | (buf[3] as u32)
 }
 
-fn get_page_number(path: &PathBuf) -> Result<u64, Error>{
-    let page = File::open(path)?;
+fn get_page_number(pages: &File, offset: u64) -> Result<u64, Error>{
     let mut buffer = [0; 4];
-    page.seek_read(&mut buffer, 4)?;
+    pages.seek_read(&mut buffer, offset + 4)?;
     Ok(arr2int(&buffer) as u64)
 }
 
-fn get_file_count(path: PathBuf) -> Result<usize, Error>{
-    fs::read_dir(path)
-        .and_then(|entries| {
-            Ok(entries.count())
-        })
-}
-
-fn copy_page(source: &PathBuf, destination: &File, offset: u64) -> Result<(), Error>{
-    let mut source_page = File::open(source)?;
+fn copy_page(source: &File, destination: &File, source_offset: u64, destination_offset: u64) -> Result<(), Error>{
     let mut buffer = [0; 4096];
-    let mut offset = offset;
+    let mut destination_offset = destination_offset;
+    let mut source_offset = source_offset;
     loop {
-        let bytes_read = source_page.read(&mut buffer)?;
+        let bytes_read = source.seek_read(&mut buffer, source_offset)?;
         if bytes_read == 0 {
             break;
         }
-        destination.seek_write(&buffer, offset)?;
-        offset += bytes_read as u64;
+        destination.seek_write(&buffer, destination_offset)?;
+        destination_offset += bytes_read as u64;
+        source_offset += bytes_read as u64;
     }
     Ok(())
 }
@@ -77,63 +70,88 @@ fn main(){
     tracing::subscriber::set_global_default(subscriber).expect("Failed to setup Logger");
 
     let output_file = File::create_new(args.output).expect("Failed to open output file");
+    let mut input_file = File::open(args.input).expect("Failed to open input file");
 
-    let entries = fs::read_dir(args.directory.clone()).expect("Failed to read directory");
-    let total = get_file_count(args.directory).expect("Failed to get file count");
+    let total_bytes = input_file.seek(std::io::SeekFrom::End(0)).expect("Failed to get input file size");
+    let total_pages = total_bytes / PAGE_SIZE as u64;
     let mut success: usize = 0;
 
     let process_bar = if args.verbose > 0 {
-        Some(indicatif::ProgressBar::new(total as u64))
+        Some(ProgressBar::new(total_bytes as u64))
     } else {
         None
     };
 
-    if let Some(process_bar) = &process_bar{
+    if let Some(process_bar) = &process_bar {
         process_bar.set_style(
             ProgressStyle::with_template(
-                "[{eta}] [{bar:40}] ({per_sec}) {human_pos}/{human_len} {msg}"
-            ).unwrap()
-            .progress_chars("=> ")
+                "[{eta}] [{bar:40}] ({bytes_per_sec}) {bytes}/{total_bytes} {msg}",
+            )
+            .unwrap()
+            .progress_chars("=> "),
         );
     }
 
-    for entry in entries {
-        let path = match entry {
-            Ok(entry) => entry.path(),
-            Err(entry) => {
-                warn!("Failed to read entry: {}", entry);
-                continue;
-            }
-        };
-        if path.is_dir(){
-            continue;
-        }
-        match path.extension(){
-            None => continue,
-            Some(ext) if ext != "page" => continue,
-            Some(_) => {}
-        };
-
-        let offset = match get_page_number(&path){
-            Ok(page_number) => page_number * PAGE_SIZE as u64,
+    for i in 0..total_pages{
+        let offset = i * PAGE_SIZE as u64;
+        let page_number = match get_page_number(&input_file, offset){
+            Ok(page_number) => page_number,
             Err(err) => {
-                warn!("Failed to get page number: {}", err);
+                warn!("Failed to get page number of page {}: {}", i + 1, err);
                 continue;
             }
         };
-
-        match copy_page(&path, &output_file, offset){
+        let destination_offset = page_number * PAGE_SIZE as u64;
+        match copy_page(&input_file, &output_file, offset, destination_offset){
             Ok(_) => {},
             Err(err) => {
-                warn!("Failed to copy page: {}", err);
+                warn!("Failed to copy page {}: {}", i + 1, err);
                 continue;
             }
         }
-        
         success += 1;
         if let Some(process_bar) = &process_bar{
-            process_bar.inc(1);
+            process_bar.inc(PAGE_SIZE as u64);
         }
     }
-    info!("Successfully sorted {} pages of {} pages", success, total);
+    info!("Successfully sorted {} pages of {} pages", success, total_pages);
+
+    // for entry in entries {
+    //     let path = match entry {
+    //         Ok(entry) => entry.path(),
+    //         Err(entry) => {
+    //             warn!("Failed to read entry: {}", entry);
+    //             continue;
+    //         }
+    //     };
+    //     if path.is_dir(){
+    //         continue;
+    //     }
+    //     match path.extension(){
+    //         None => continue,
+    //         Some(ext) if ext != "page" => continue,
+    //         Some(_) => {}
+    //     };
+
+    //     let offset = match get_page_number(&path){
+    //         Ok(page_number) => page_number * PAGE_SIZE as u64,
+    //         Err(err) => {
+    //             warn!("Failed to get page number: {}", err);
+    //             continue;
+    //         }
+    //     };
+
+    //     match copy_page(&path, &output_file, offset){
+    //         Ok(_) => {},
+    //         Err(err) => {
+    //             warn!("Failed to copy page: {}", err);
+    //             continue;
+    //         }
+    //     }
+        
+    //     success += 1;
+    //     if let Some(process_bar) = &process_bar{
+    //         process_bar.inc(1);
+    //     }
+    // }
 }
