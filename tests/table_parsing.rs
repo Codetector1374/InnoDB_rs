@@ -6,7 +6,7 @@ use std::{
 
 use innodb::innodb::{
     buffer_manager::DummyBufferMangaer, charset::InnoDBCharset, page::{index::{record::RecordType, IndexPage}, Page, PageType}, table::{
-        field::{Field, FieldType}, row::Row, TableDefinition
+        field::{Field, FieldType, FieldValue}, row::Row, TableDefinition
     }
 };
 
@@ -43,6 +43,12 @@ fn test_parsing_table_with_floats() {
     )
     .expect("Can't open test table");
 
+    let reference_values = vec![
+        vec![FieldValue::String(String::from("test1")), FieldValue::Float(1.1), FieldValue::Double(2.2)],
+        vec![FieldValue::String(String::from("test2")), FieldValue::Float(-0.9), FieldValue::Double(-1.42)],
+    ];
+
+    let mut parsed_values = Vec::<Vec<FieldValue>>::new();
 
     let buf_mgr = DummyBufferMangaer;
     let mut buffer = Vec::<u8>::new();
@@ -61,6 +67,8 @@ fn test_parsing_table_with_floats() {
                         if record.header.record_type == RecordType::Conventional {
                             let row = Row::try_from_record_and_table(&record, &parsed_table).expect("Failed to parse row");
                             let values = row.parse_values(&buf_mgr);
+                            assert_eq!(values.len(), parsed_table.field_count());
+                            parsed_values.push(values);
                         }
 
                         record = record.next().unwrap();
@@ -71,4 +79,6 @@ fn test_parsing_table_with_floats() {
             Err(_) => break,
         }
     }
+
+    assert_eq!(parsed_values, reference_values);
 }

@@ -56,10 +56,12 @@ impl FieldType {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum FieldValue {
     SignedInt(i64),
     UnsignedInt(u64),
+    Float(f32),
+    Double(f64),
     String(String),
     PartialString { partial: String, total_len: usize },
     Null,
