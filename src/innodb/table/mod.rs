@@ -87,15 +87,17 @@ impl TableDefinition {
                     DataType::MediumInt(_) => FieldType::MediumInt(true),
                     DataType::Int(_) => FieldType::Int(true),
                     DataType::BigInt(_) => FieldType::BigInt(true),
+                    DataType::Enum(values) => FieldType::Enum(values.clone()),
+                    DataType::Date => FieldType::Date,
+                    DataType::Datetime(_) => FieldType::DateTime,
+                    DataType::Timestamp(_, _) => FieldType::Timestamp,
+                    DataType::Float(opt) => FieldType::Float,
+                    DataType::Double => FieldType::Double,
                     DataType::Custom(name, _) => match name.0[0].value.as_str() {
                         "mediumtext" => FieldType::Text((1 << 24) - 1, charset),
                         "longtext" => FieldType::Text((1 << 32) - 1, charset),
                         _ => unimplemented!("Custom: {} unhandled", name.0[0].value),
                     },
-                    DataType::Enum(values) => FieldType::Enum(values.clone()),
-                    DataType::Date => FieldType::Date,
-                    DataType::Datetime(_)=> FieldType::DateTime,
-                    DataType::Timestamp(_,_) => FieldType::Timestamp,
                     _ => unimplemented!("mapping of {:?}", column.data_type),
                 };
 

@@ -9,9 +9,15 @@ But also serves as an implementation of InnoDB's storage engine in Rust.
 Project is currently under heavy development and in its early stages. 
 
 # Building
-Try building the tool in release mode unless you have a specific reason to not do so. 
-The performance difference is non-trivial given Rust performs checked arithmetic 
-in debug mode.
+Try building the tool (especially page_extractor) in release mode. The performance 
+difference is non-trivial partially due to the Rust checked arithmetic in debug mode.
+
+# Usage
+See the Wiki for usage / guide.
+
+# MySQL Support
+This tool-set is develoed with MySQL 8.0, as that is the database I had to recover. 
+Contribution to support older / newer version / table format is more than welcome.
 
 # Tools
 

@@ -11,6 +11,9 @@ pub enum FieldType {
     Int6(bool),      // 6
     BigInt(bool),    // 8
 
+    Float,
+    Double,
+
     Enum(Vec<String>),
 
     Text(usize, InnoDBCharset), // CHAR type with non-latin charset also uses this apparently
@@ -37,20 +40,28 @@ impl FieldType {
             FieldType::Int(_) => 4,
             FieldType::Int6(_) => 6,
             FieldType::BigInt(_) => 8,
+
+            FieldType::Float => 4,
+            FieldType::Double => 8,
+
             FieldType::Enum(_) => 2,
+
+            FieldType::Text(len, charset) => (*len as u64) * charset.max_len(),
+            FieldType::Char(len, charset) => (*len as u64) * charset.max_len(),
+
             FieldType::Date => 3,
             FieldType::DateTime => 8,
             FieldType::Timestamp => 4,
-            FieldType::Text(len, charset) => (*len as u64) * charset.max_len(),
-            FieldType::Char(len, charset) => (*len as u64) * charset.max_len(),
         }
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum FieldValue {
     SignedInt(i64),
     UnsignedInt(u64),
+    Float(f32),
+    Double(f64),
     String(String),
     PartialString { partial: String, total_len: usize },
     Null,
@@ -188,11 +199,21 @@ impl Field {
                 };
 
                 let num = self.parse_uint(buf, len);
-                assert!(
-                    (num as usize) < values.len(),
-                    "Enum Value is larger than expected?"
-                );
-                (FieldValue::String(values[num as usize].clone()), len)
+                if num == 0 {
+                    (FieldValue::String("".to_owned()), len)
+                } else {
+                    let variant_index = num - 1;
+                    assert!(
+                        (variant_index as usize) < values.len(),
+                        "Enum Value is larger than expected? {} vs {}",
+                        variant_index,
+                        values.len()
+                    );
+                    (
+                        FieldValue::String(values[variant_index as usize].clone()),
+                        len,
+                    )
+                }
             }
             #[allow(unreachable_patterns)]
             _ => {
