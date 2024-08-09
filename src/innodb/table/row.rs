@@ -136,7 +136,7 @@ impl<'a> Row<'a> {
     fn load_extern(
         &self,
         extern_header: &ExternReference,
-        buffer_mgr: &mut dyn BufferManager,
+        buffer_mgr: &dyn BufferManager,
     ) -> Result<Box<[u8]>> {
         let space_id = extern_header.space_id;
         let first_page_number = extern_header.page_number;
@@ -198,7 +198,7 @@ impl<'a> Row<'a> {
         &self,
         f: &Field,
         extern_header: &ExternReference,
-        buffer_mgr: &mut dyn BufferManager,
+        buffer_mgr: &dyn BufferManager,
     ) -> FieldValue {
         // Load a page
         match self.load_extern(extern_header, buffer_mgr) {
@@ -218,7 +218,7 @@ impl<'a> Row<'a> {
         f: &Field,
         buf: &[u8],
         idx: usize,
-        buf_mgr: &mut dyn BufferManager,
+        buf_mgr: &dyn BufferManager,
     ) -> (FieldValue, usize) {
         if self.extern_fields.contains(&idx) {
             let len = *self.field_len_map.get(&idx).unwrap() as usize;
@@ -237,7 +237,7 @@ impl<'a> Row<'a> {
     }
 
     /// Only call on primary index
-    pub fn parse_values(&self, buffer_mgr: &mut dyn BufferManager) -> Vec<FieldValue> {
+    pub fn parse_values(&self, buffer_mgr: &dyn BufferManager) -> Vec<FieldValue> {
         let mut values = Vec::new();
         let mut current_offset = self.record.offset;
         let num_pk = self.td.cluster_columns.len();
