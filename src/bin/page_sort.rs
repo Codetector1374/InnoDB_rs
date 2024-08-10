@@ -97,7 +97,7 @@ fn main(){
         let page_number = match get_page_number(&input_file, offset){
             Ok(page_number) => page_number,
             Err(err) => {
-                warn!("Failed to get page number of page {}: {}", i + 1, err);
+                warn!("Failed to get page number of page {}: {}.Skip.", i + 1, err);
                 continue;
             }
         };
@@ -105,7 +105,7 @@ fn main(){
         match copy_page(&input_file, &output_file, offset, destination_offset){
             Ok(_) => {},
             Err(err) => {
-                warn!("Failed to copy page {}: {}", i + 1, err);
+                warn!("Failed to copy page {}: {}.Skip.", i + 1, err);
                 continue;
             }
         }
@@ -115,43 +115,4 @@ fn main(){
         }
     }
     info!("Successfully sorted {} pages of {} pages", success, total_pages);
-
-    // for entry in entries {
-    //     let path = match entry {
-    //         Ok(entry) => entry.path(),
-    //         Err(entry) => {
-    //             warn!("Failed to read entry: {}", entry);
-    //             continue;
-    //         }
-    //     };
-    //     if path.is_dir(){
-    //         continue;
-    //     }
-    //     match path.extension(){
-    //         None => continue,
-    //         Some(ext) if ext != "page" => continue,
-    //         Some(_) => {}
-    //     };
-
-    //     let offset = match get_page_number(&path){
-    //         Ok(page_number) => page_number * PAGE_SIZE as u64,
-    //         Err(err) => {
-    //             warn!("Failed to get page number: {}", err);
-    //             continue;
-    //         }
-    //     };
-
-    //     match copy_page(&path, &output_file, offset){
-    //         Ok(_) => {},
-    //         Err(err) => {
-    //             warn!("Failed to copy page: {}", err);
-    //             continue;
-    //         }
-    //     }
-        
-    //     success += 1;
-    //     if let Some(process_bar) = &process_bar{
-    //         process_bar.inc(1);
-    //     }
-    // }
 }
